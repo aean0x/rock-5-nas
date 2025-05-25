@@ -2,6 +2,8 @@
 
 A NixOS configuration for the ROCK5 ITX board, featuring automated installation and secure secrets management.
 
+Intended to provide a straightforward, all-in-one guide and repo for installing and managing a headless NixOS server setup on a Rock 5 ITX board.
+
 ## Prerequisites
 
 - A Linux system with Nix installed
@@ -24,6 +26,7 @@ A NixOS configuration for the ROCK5 ITX board, featuring automated installation 
    ```
 
 3. **Configure Settings**
+   
    Edit `settings.nix` with your specific configuration:
    - Update `hostName` if desired
    - Set your `adminUser` username
@@ -31,6 +34,7 @@ A NixOS configuration for the ROCK5 ITX board, featuring automated installation 
    - Review and adjust other settings as needed
 
 4. **Configure Secrets**
+   
    Set up secrets with [Managing Secrets](#managing-secrets)
 
 5. **Commit Your Changes**
