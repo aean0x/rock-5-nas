@@ -1,4 +1,4 @@
-# SkyPi Nix
+# Rock 5 NAS
 
 A NixOS configuration for the ROCK5 ITX board, featuring automated installation and secure secrets management.
 
@@ -12,8 +12,8 @@ A NixOS configuration for the ROCK5 ITX board, featuring automated installation 
 
 1. **Fork and Clone the Repository**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/skypi-nix.git
-   cd skypi-nix
+   git clone https://github.com/YOUR_USERNAME/rock-5-nas.git
+   cd rock-5-nas
    ```
 
 2. **Generate SSH Key** (if you don't have one)
@@ -30,7 +30,10 @@ A NixOS configuration for the ROCK5 ITX board, featuring automated installation 
    - Add your SSH public key to the `sshKeys` list
    - Review and adjust other settings as needed
 
-4. **Commit Your Changes**
+4. **Configure Secrets**
+   Set up secrets with [Managing Secrets](#managing-secrets)
+
+5. **Commit Your Changes**
    ```bash
    git commit -m "Initial configuration"
    git push
@@ -79,7 +82,7 @@ Before building the ISO, you need to flash the EDK2 UEFI firmware to your ROCK5 
 2. **Write the ISO to a USB Drive**
    ```bash
    # Replace /dev/sdX with your USB drive
-   sudo dd if=result/iso/SkyPi-nixos-unstable-x86_64-linux.iso of=/dev/sdX bs=4M status=progress
+   sudo dd if=result/iso/nixos-minimal-xxxxxxxxxx.iso of=/dev/sdX bs=4M status=progress
    ```
 
 ## Installation

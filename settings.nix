@@ -1,6 +1,6 @@
 {
   # System
-  hostName = "SkyPi";
+  hostName = "rock5-nas";
   adminUser = "aean";
   setupPassword = "nixos"; # For SSH into the setup image
   description = "ROCK5 ITX NAS Server";
@@ -13,7 +13,7 @@
   # URLs
   edk2FirmwareUrl = "https://github.com/edk2-porting/edk2-rk3588/releases/download/v1.1/rock-5-itx_UEFI_Release_v1.1.img";
   spiFirmwareUrl = "https://dl.radxa.com/rock5/sw/images/loader/rk3588_spl_loader_v1.15.113.bin";
-  repoUrl = "https://github.com/aean0x/skypi-nix.git";
+  repoUrl = "https://github.com/aean0x/rock-5-nas.git";
 
   # Replace with your SSH public key(s)
   # Generate with: ssh-keygen -y -f ~/.ssh/id_ed25519 > ~/.ssh/id_ed25519.pub && cat ~/.ssh/id_ed25519.pub
@@ -22,6 +22,7 @@
   ];
 
   # SOPS configuration
+  # TODO: Add secrets to match the secrets.yaml.example file
   sops = {
     defaultSopsFile = ./secrets/secrets.yaml;
     age.keyFile = "/var/lib/sops-nix/key.txt";

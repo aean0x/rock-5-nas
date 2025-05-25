@@ -77,7 +77,7 @@ done
 # Create GPT partition table
 echo "Creating GPT partition table..."
 # Partition 1: EFI, starts at sector 8196, size 512M
-sgdisk --new=1:8192:+512M --typecode=1:ef00 --change-name=1:"EFI" "\$TARGET_DEVICE" || { echo "Failed to create EFI partition"; exit 1; }
+sgdisk --new=1:8196:+512M --typecode=1:ef00 --change-name=1:"EFI" "\$TARGET_DEVICE" || { echo "Failed to create EFI partition"; exit 1; }
 sleep 1
 # Partition 2: Root, starts after Partition 1, extends to end of device
 sgdisk --new=2:0:0 --typecode=2:8300 --change-name=2:"Root" "\$TARGET_DEVICE" || { echo "Failed to create root partition"; exit 1; }
