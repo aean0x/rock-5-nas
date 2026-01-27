@@ -1,17 +1,16 @@
 {
-  config,
   pkgs,
   lib,
-  username,
-  inputs,
   ...
-}: let
+}:
+let
   settings = import ../settings.nix;
-in {
+in
+{
   home = {
     username = settings.adminUser;
     homeDirectory = lib.mkForce "/home/${settings.adminUser}";
-    stateVersion = "25.05";
+    stateVersion = "25.11";
   };
 
   home.packages = with pkgs; [ git ];
@@ -33,8 +32,9 @@ in {
   };
 
   home.file =
-    lib.foldl' (
-      acc: file:
+    lib.foldl'
+      (
+        acc: file:
         acc
         // {
           "${file.target}" = {
@@ -42,16 +42,18 @@ in {
             executable = file.executable;
           };
         }
-    ) {} [
-      {
-        source = ./bin/rebuild;
-        target = ".local/bin/rebuild";
-        executable = true;
-      }
-      {
-        source = ./bin/cleanup;
-        target = ".local/bin/cleanup";
-        executable = true;
-      }
-    ];
+      )
+      { }
+      [
+        {
+          source = ./bin/rebuild;
+          target = ".local/bin/rebuild";
+          executable = true;
+        }
+        {
+          source = ./bin/cleanup;
+          target = ".local/bin/cleanup";
+          executable = true;
+        }
+      ];
 }

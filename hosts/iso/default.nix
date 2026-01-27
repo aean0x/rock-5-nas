@@ -1,4 +1,10 @@
-{ pkgs, lib, config, settings, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  settings,
+  ...
+}:
 let
   # Workaround to pass the key.txt file to the ISO. Ensure the KEY_FILE_PATH environment
   # variable is set to the path of the key.txt file before running nix-build
@@ -10,7 +16,12 @@ in
     ../common/kernel.nix
   ];
 
-  system.stateVersion = "25.05";
+  system.stateVersion = "25.11";
+
+  boot.supportedFilesystems = lib.mkForce [
+    "ext4"
+    "vfat"
+  ];
 
   # ISO specific configuration
   isoImage = {
@@ -49,13 +60,17 @@ in
 
   # Activation script to include key.txt
   system.activationScripts = {
-    setupSopsKey = if keyContent != "" then ''
-      mkdir -p /var/lib/sops-nix
-      echo "${keyContent}" > /var/lib/sops-nix/key.txt
-      chmod 600 /var/lib/sops-nix/key.txt
-    '' else ''
-      echo "Error: KEY_FILE_PATH environment variable not set or file not found."
-      exit 1
-    '';
+    setupSopsKey =
+      if keyContent != "" then
+        ''
+          mkdir -p /var/lib/sops-nix
+          echo "${keyContent}" > /var/lib/sops-nix/key.txt
+          chmod 600 /var/lib/sops-nix/key.txt
+        ''
+      else
+        ''
+          echo "Error: KEY_FILE_PATH environment variable not set or file not found."
+          exit 1
+        '';
   };
-} 
+}

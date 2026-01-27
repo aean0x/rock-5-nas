@@ -4,10 +4,10 @@
   adminUser = "aean";
   setupPassword = "nixos"; # For SSH into the setup image
   description = "ROCK5 ITX NAS Server";
-  hostId = "8425e349";  # Required for ZFS, generated with `head -c 8 /etc/machine-id`
+  # hostId = "8425e349";  # Required for ZFS, generated with `head -c 8 /etc/machine-id`
 
   # Build systems
-  hostSystem = "x86_64-linux";    # System building the ISO
+  hostSystem = "x86_64-linux"; # System building the ISO
   targetSystem = "aarch64-linux"; # System that will run the OS
 
   # URLs
@@ -27,8 +27,8 @@
     defaultSopsFile = ./secrets/secrets.yaml;
     age.keyFile = "/var/lib/sops-nix/key.txt";
     secrets = {
-      "user.hashedPassword" = {};
-      "services.nextcloud.adminpass" = {};
+      "user.hashedPassword" = { };
+      "services.nextcloud.adminpass" = { };
     };
   };
-} 
+}
