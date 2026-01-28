@@ -1,33 +1,25 @@
+# ./services/cockpit.nix
+{ config, pkgs, settings, ... }:
+
 {
-  config,
-  pkgs,
-  ...
-}: {
   services.cockpit = {
     enable = true;
-    port = 9090;
-    settings = {
-      WebService = {
-        AllowUnencrypted = false;
-        ProtocolHeader = "X-Forwarded-Proto";
-      };
-    };
+    openFirewall = true;          # Opens 9090/tcp
+    # port = 9090;
   };
 
   environment.systemPackages = with pkgs; [
-    cockpit
+    cockpit-podman                  # Podman containers tab (start/stop/logs/inspect)
+    cockpit-zfs                     # ZFS pool/dataset/snapshot management (45Drives plugin)
+    cockpit-storaged                # General storage (disks, mounts, LUKS, etc.)
+    # cockpit-machines              # Optional: VM management
+    # cockpit-sensors               # Hardware sensors (optional)
   ];
 
-  # Enable required system services
-  services.udisks2.enable = true;
+  # Optional improvements
+  services.zfs.autoScrub.enable = true;
+  services.zfs.autoSnapshot.enable = true;   # if you use zfs-auto-snapshot
 
-  # Additional security settings for Cockpit
-  security.polkit.extraConfig = ''
-    polkit.addRule(function(action, subject) {
-      if (action.id.indexOf("org.cockpit-project") === 0 &&
-          subject.local && subject.active && subject.isInGroup("wheel")) {
-          return polkit.Result.YES;
-      }
-    });
-  '';
+  # Allow your user to manage containers in Cockpit (Podman)
+  users.users.${settings.adminUser}.extraGroups = [ "podman" ];
 }

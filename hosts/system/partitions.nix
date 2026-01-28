@@ -1,10 +1,24 @@
 # Storage configuration for ROCK5 ITX
 {
   pkgs,
+  settings,
   ...
 }:
 
 {
+  # Filesystem mounts (labels created by installer)
+  fileSystems."/" = {
+    device = "/dev/disk/by-label/ROOT";
+    fsType = "ext4";
+  };
+
+  fileSystems."/boot/efi" = {
+    device = "/dev/disk/by-label/EFI";
+    fsType = "vfat";
+  };
+
+  # ZFS pools auto-populate
+
   # ZFS configuration
   boot = {
     supportedFilesystems = [ "zfs" ];

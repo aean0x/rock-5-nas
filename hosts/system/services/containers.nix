@@ -1,59 +1,40 @@
+# ./services/containers.nix
+{ config, pkgs, settings, ... }:
+
 {
-  config,
-  pkgs,
-  lib,
-  settings,
-  ...
-}: let
-  mkVolumeService = name: {
-    description = "Create ${name} volume";
-    wantedBy = ["multi-user.target"];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
+  virtualisation = {
+    # === Docker daemon (rootful by default) ===
+    docker = {
+      enable = true;
+      enableOnBoot = true;
+      # rootless.enable = true;          # ← Uncomment for rootless Docker (recommended if possible)
+      autoPrune.enable = true;           # Optional: periodic cleanup
     };
-    script = ''
-      ${pkgs.podman}/bin/podman volume exists ${name} || \
-      ${pkgs.podman}/bin/podman volume create ${name}
-    '';
+
+    # === Podman (daemonless, preferred on NixOS) ===
+    podman = {
+      enable = true;
+      dockerCompat = false;              # ← IMPORTANT: Keep false when real Docker daemon is enabled
+      defaultNetwork.settings.dns_enabled = true;
+      autoPrune.enable = true;
+    };
   };
 
-  volumes = [
-    # "nextcloud-data"
-    "homeassistant-config"
+  # Optional but useful
+  environment.systemPackages = with pkgs; [
+    docker-compose
+    podman-compose
+    dive          # image inspection
   ];
-in {
-  virtualisation.oci-containers.containers = {
-    # nextcloud = {
-    #   image = "nextcloud:latest";
-    #   autoStart = true;
-    #   environment = {
-    #     NEXTCLOUD_ADMIN_USER = "admin";
-    #     NEXTCLOUD_ADMIN_PASSWORD = settings.nextcloud.adminpass;
-    #   };
-    #   volumes = [
-    #     "nextcloud-data:/var/www/html"
-    #   ];
-    #   extraOptions = [
-    #     "--network=podman"
-    #   ];
-    # };
 
-    homeassistant = {
-      image = "ghcr.io/home-assistant/home-assistant:stable";
-      autoStart = true;
-      volumes = [
-        "homeassistant-config:/config"
-      ];
-      extraOptions = [
-        "--network=podman"
-        "--privileged"
-      ];
+  # Recommended for ZFS users (Podman)
+  virtualisation.containers.storage.settings = {
+    storage = {
+      driver = "zfs";
+      graphroot = "/var/lib/containers/storage";   # or point to a ZFS dataset
     };
   };
 
-  systemd.services =
-    lib.genAttrs
-    (map (name: "create-${name}") volumes)
-    (name: mkVolumeService (lib.removePrefix "create-" name));
+  # Optional: rootless Podman for your user
+  users.users.${settings.adminUser}.extraGroups = [ "podman" ];
 }

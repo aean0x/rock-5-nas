@@ -12,12 +12,6 @@ let
   keyContent = if keyFilePath != "" then builtins.readFile keyFilePath else "";
 in
 {
-  imports = [
-    ../common/kernel.nix
-  ];
-
-  system.stateVersion = "25.11";
-
   boot.supportedFilesystems = lib.mkForce [
     "ext4"
     "vfat"
@@ -51,11 +45,11 @@ in
     settings.PasswordAuthentication = true;
   };
 
-  # Default user for ISO
+  # Default user for ISO (password auth only)
   users.users.setup = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
-    password = "nixos";
+    password = settings.setupPassword;
   };
 
   # Activation script to include key.txt
@@ -73,4 +67,6 @@ in
           exit 1
         '';
   };
+
+  system.stateVersion = settings.stateVersion;
 }

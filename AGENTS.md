@@ -6,98 +6,105 @@ Technical roadmap for AI agents working with this NixOS flake configuration.
 
 ```
 flake.nix                    # Entry point - two outputs: system config + ISO builder
-├── settings.nix             # Centralized config (hostname, user, SSH keys, SOPS paths)
+├── settings.nix             # Minimal config (hostname, adminUser, repoUrl)
+├── hardware-configuration.nix  # RK3588 kernel, device tree, boot params
 ├── hosts/
-│   ├── common/              # Shared kernel config (RK3588 device tree, modules)
 │   ├── system/              # Target system (what gets installed)
 │   │   ├── default.nix      # Boot, networking, users, SSH - imports services/*
-│   │   ├── partitions.nix   # ZFS config with auto-snapshot/scrub/trim
-│   │   ├── hardware-configuration.nix  # Generated during install
-│   │   └── services/        # Optional modules (all currently commented out in default.nix)
+│   │   ├── packages.nix     # System-wide packages
+│   │   ├── scripts.nix      # System management scripts (rebuild, cleanup)
+│   │   ├── partitions.nix   # Filesystem mounts (label-based), ZFS config
+│   │   └── services/        # Optional modules (uncomment in default.nix to enable)
+│   │       ├── arr-suite.nix    # nixarr media stack (Sonarr, Radarr, etc.)
+│   │       ├── caddy.nix        # Reverse proxy with Cloudflare DNS ACME
+│   │       ├── cockpit.nix      # Web-based system management
+│   │       ├── containers.nix   # Docker + Podman configuration
+│   │       ├── remote-desktop.nix # XFCE + xrdp
+│   │       ├── tasks.nix        # Auto-upgrade and garbage collection
+│   │       └── transmission.nix # Torrent client with VPN killswitch
 │   └── iso/                  # Installer image
 │       ├── default.nix      # Cross-compilation setup, SOPS key injection
-│       └── install.nix      # Derivation wrapping the installer script
-├── home/                    # home-manager config
-│   ├── home.nix             # User packages, shell, neovim, bin scripts
-│   └── bin/                 # Management scripts deployed to ~/.local/bin
-└── secrets/                 # SOPS-encrypted secrets (age encryption)
+│       └── install.nix      # Installer script
+└── secrets/                 # SOPS-encrypted secrets
+    ├── sops.nix             # Centralized secrets module (imported by system)
+    ├── secrets.yaml         # Encrypted secrets (committed)
+    ├── secrets.yaml.example # Template for new users
+    ├── encrypt.sh           # Key generation + encryption workflow
+    └── decrypt.sh           # Decrypt for editing
 ```
 
 ## Build Targets
 
-The flake exposes:
-- `nixosConfigurations.${hostName}` - Target system (aarch64-linux)
-- `nixosConfigurations.${hostName}-ISO` - Installer ISO (cross-compiled from x86_64)
-- `packages.x86_64-linux.iso` - Convenience alias for ISO
-
-Build commands:
-- `./build-iso.sh` - Sets up SOPS key, builds ISO with `--impure` (required for key injection)
-- `nix build .#nixosConfigurations.rock5-nas.config.system.build.toplevel` - Direct system build
+- `./build-iso.sh` - Validates settings, sets up SOPS, builds ISO with `--impure`
+- `nix build .#iso` - Direct ISO build (requires KEY_FILE_PATH env var)
 
 ## Key Patterns
 
-### Settings Propagation
-`settings.nix` is imported directly (not as a module) and passed via `specialArgs`. Access with `{ settings, ... }:` in any module.
+### Settings vs Secrets
 
-### Cross-Compilation
-ISO build uses `nixpkgs.crossSystem`/`localSystem` to build aarch64 from x86_64. Certain features disabled during cross-compile (git, documentation).
+**settings.nix** - Values needed at Nix eval time:
+- `repoUrl` - Single string "owner/repo", parsed into repoOwner/repoName
+- `hostName`, `adminUser` - Must be known at build time
+- `setupPassword` - Temp password for ISO SSH access
+- Build systems (hostSystem, targetSystem)
 
-### SOPS Key Injection
-`build-iso.sh` exports `KEY_FILE_PATH` → `iso/default.nix` reads via `builtins.getEnv` → activation script writes to `/var/lib/sops-nix/key.txt` in ISO.
+**secrets/sops.nix** - Runtime secrets (decrypted at activation):
+- `user.hashedPassword` - Login password
+- `user.pubKey` - SSH authorized key
+- `vpn.wgConf` - WireGuard config for VPN
+- `services.transmission.credentials` - Transmission RPC auth
+- `services.caddy.cloudflareToken` - Cloudflare API token (if using caddy)
 
-### Device Tree Handling
-Kernel config (`kernel.nix`) enables DT and copies DTB to EFI partition. Boot loader config (`system/default.nix`) also copies DTB to EFI. The `rk3588-rock-5-itx.dtb` path is critical.
+### SOPS Flow
+1. `build-iso.sh` validates repoUrl matches git remote, prompts to edit if not
+2. `encrypt.sh` detects forked repos (can't decrypt existing secrets.yaml)
+3. Offers to overwrite with example, opens nano for editing
+4. Generates age key if missing, encrypts to secrets.yaml
+5. `build-iso.sh` embeds key in ISO via `KEY_FILE_PATH` env var
+6. Installer copies key to `/mnt/var/lib/sops-nix/key.txt`
+7. System decrypts secrets at activation time
 
-### Services Pattern
-Services in `hosts/system/services/` are standalone modules. Enable by uncommenting imports in `hosts/system/default.nix`. Each handles its own packages, systemd units, and config.
+### Remote Flake Workflow
+1. Edit config on dev machine, commit, push
+2. On NAS: run `rebuild` (fetches from `github:owner/repo#hostname`)
+3. Auto-upgrade runs weekly (Sunday 3AM) if `tasks.nix` is enabled
 
 ## Modification Guidelines
 
-### Adding a New Service
-1. Create `hosts/system/services/myservice.nix`
-2. Import in `hosts/system/default.nix`
-3. If service needs secrets, add to `settings.nix` sops.secrets and `secrets.yaml.example`
-
 ### Adding Secrets
-1. Add key path to `settings.nix` → `sops.secrets`
+1. Add key to `secrets/sops.nix` secrets block
 2. Add placeholder to `secrets.yaml.example`
-3. Run `./secrets/decrypt.sh`, edit `secrets.yaml.work`, run `./secrets/encrypt.sh`
-4. Reference as `config.sops.secrets."path.to.secret".path` in modules
+3. Run `./secrets/decrypt.sh` → edit → `./secrets/encrypt.sh`
+4. Reference as `config.sops.secrets."path".path` in modules
 
-### Kernel Changes
-All in `hosts/common/kernel.nix`. The `extraConfig` mechanism adds kernel config options. `initrd.availableKernelModules` lists modules available early. `kernelParams` for boot args.
+### Enabling Services
+1. Uncomment the import line in `hosts/system/default.nix`
+2. Ensure required secrets are configured (check service file for `config.sops.secrets.*` references)
+3. Commit, push, rebuild
 
-### User Management
-Admin user defined in `settings.nix`, created in `hosts/system/default.nix`. Home-manager config in `home/home.nix`. Additional users would follow same pattern.
+### Forking for Your Own Use
+1. Fork repo, clone locally
+2. Run `./build-iso.sh` - will detect mismatched repoUrl and prompt to edit settings.nix
+3. `encrypt.sh` detects foreign secrets, prompts to overwrite with example
+4. Fill in your secrets in nano when prompted
+5. Commit changes, build completes
 
 ## Installation Flow
 
 1. `build-iso.sh` → ISO with embedded SOPS key
-2. Boot ISO, run `sudo nixinstall`
-3. Installer partitions (GPT, optional EMMC boot), formats (vfat EFI, ext4 root)
-4. Clones repo to `/tmp` and `~/.dotfiles`
-5. Generates hardware-configuration.nix
-6. Copies SOPS key to target
-7. Builds and installs system
-8. Post-install: use `rebuild` script for updates
-
-## Common Tasks
-
-| Task | Command/Action |
-|------|----------------|
-| Rebuild after config change | `rebuild` (or `rebuild -r` to reboot) |
-| Update flake inputs | `rebuild -u` |
-| Edit secrets | `cd secrets && ./decrypt.sh` → edit → `./encrypt.sh` |
-| Enable a service | Uncomment import in `hosts/system/default.nix` |
-| Change kernel version | Modify `kernelOverride` in `kernel.nix` |
-| Add user package | Add to `home.packages` in `home/home.nix` |
-| Add system package | Add to `environment.systemPackages` in `hosts/system/default.nix` |
+2. Boot ISO, SSH as `setup` (password: `nixos` or as set in settings.setupPassword)
+3. Run `sudo nixinstall`
+4. Select target device (GPT, optional EMMC boot)
+5. Installer creates labeled partitions: `EFI`, `ROOT`
+6. Copies SOPS key to `/mnt/var/lib/sops-nix/key.txt`
+7. Installs from remote flake (no generated config needed)
+8. Reboot into installed system
 
 ## Gotchas
 
-- ISO build requires `--impure` due to `builtins.getEnv`
-- ZFS support requires `hostId` in settings (generate with `head -c 8 /etc/machine-id`)
-- Kernel pinned to 6.18
-- `hashedPassword` in secrets must be generated with `mkpasswd -m SHA-512`
-- Hardware config is generated fresh during install; don't manually edit the committed version
-- Services use `config.sops.secrets."...".path` to get file path, not the secret value directly
+- ISO build requires `--impure` for SOPS key injection via `builtins.getEnv`
+- `adminUser` cannot move to SOPS (needed at Nix eval time for attribute name)
+- ISO uses password auth only; installed system uses SOPS `user.pubKey`
+- VPN killswitch: Transmission traffic only flows if tunnel is active
+- Filesystem mounts use labels (`ROOT`, `EFI`) - no hardware-configuration.nix generation needed
+- Service files need `settings` in function args if they reference `settings.adminUser`

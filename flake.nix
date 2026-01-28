@@ -4,8 +4,12 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-25.11";
-    home-manager = {
-      url = "github:nix-community/home-manager";
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nixarr = {
+      url = "github:rasmus-kirk/nixarr";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -15,7 +19,8 @@
       self,
       nixpkgs,
       nixpkgs-stable,
-      home-manager,
+      sops-nix,
+      nixarr,
       ...
     }@inputs:
     let
@@ -37,20 +42,10 @@
         specialArgs = { inherit inputs settings; };
         modules = [
           { nixpkgs.overlays = overlays; }
-          ./hosts/system/hardware-configuration.nix
-          ./hosts/common/kernel.nix
+          sops-nix.nixosModules.sops
+          ./hardware-configuration.nix
           ./hosts/system/default.nix
-          home-manager.nixosModules.home-manager
-          {
-            home-manager.useGlobalPkgs = true;
-            home-manager.useUserPackages = true;
-            home-manager.extraSpecialArgs = { inherit inputs; };
-            home-manager.users."${settings.adminUser}" = {
-              imports = [
-                ./home/home.nix
-              ];
-            };
-          }
+          nixarr.nixosModules.default
         ];
       };
 
@@ -59,6 +54,7 @@
         specialArgs = { inherit inputs settings; };
         modules = [
           "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
+          ./hardware-configuration.nix
           ./hosts/iso/default.nix
           {
             nixpkgs.crossSystem = {
