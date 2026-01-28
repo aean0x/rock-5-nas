@@ -97,7 +97,7 @@ Admin user defined in `settings.nix`, created in `hosts/system/default.nix`. Hom
 
 - ISO build requires `--impure` due to `builtins.getEnv`
 - ZFS support requires `hostId` in settings (generate with `head -c 8 /etc/machine-id`)
-- Kernel pinned to 6.18 for ZFS compatibility
+- Kernel pinned to 6.18
 - `hashedPassword` in secrets must be generated with `mkpasswd -m SHA-512`
 - Hardware config is generated fresh during install; don't manually edit the committed version
 - Services use `config.sops.secrets."...".path` to get file path, not the secret value directly

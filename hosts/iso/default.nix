@@ -24,8 +24,8 @@ in
   ];
 
   # ISO specific configuration
+  image.fileName = "${settings.hostName}-${config.system.nixos.label}-${pkgs.stdenv.hostPlatform.system}.iso";
   isoImage = {
-    isoName = "${settings.hostName}-${config.system.nixos.label}-${pkgs.stdenv.hostPlatform.system}.iso";
     volumeID = "${settings.hostName}_${config.system.nixos.label}";
     makeEfiBootable = true;
     makeBiosBootable = false;

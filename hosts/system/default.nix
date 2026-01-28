@@ -23,7 +23,7 @@
   networking = {
     hostName = settings.hostName;
     networkmanager.enable = true;
-    # hostId = settings.hostId;  # Required for ZFS
+    hostId = settings.hostId; # Required for ZFS
   };
 
   # Boot configuration

@@ -4,7 +4,7 @@
   adminUser = "aean";
   setupPassword = "nixos"; # For SSH into the setup image
   description = "ROCK5 ITX NAS Server";
-  # hostId = "8425e349";  # Required for ZFS, generated with `head -c 8 /etc/machine-id`
+  hostId = "8425e349"; # Required for ZFS, generated with `head -c 8 /etc/machine-id`
 
   # Build systems
   hostSystem = "x86_64-linux"; # System building the ISO
