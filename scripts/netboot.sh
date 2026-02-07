@@ -169,7 +169,14 @@ echo "On the Rock 5 ITX:"
 echo "  1. Power on, press Escape for EDK2 menu"
 echo "  2. Boot Manager > UEFI PXE IPv4"
 echo ""
-echo "After boot:  ./deploy install"
+if [[ "$DHCP_MODE" == "full" ]]; then
+    echo "After boot:"
+    echo "  1. Ctrl+C to stop PXE server"
+    echo "  2. Plug device into your router (needs WAN for nixos-install)"
+    echo "  3. ./deploy install"
+else
+    echo "After boot:  ./deploy install"
+fi
 echo ""
 warn "Press Ctrl+C to stop the netboot server."
 echo ""

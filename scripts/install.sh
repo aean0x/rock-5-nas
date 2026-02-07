@@ -94,7 +94,7 @@ ssh ${SSH_OPTS} "$TARGET" "sudo mv /tmp/sops-key.txt /mnt/var/lib/sops-nix/key.t
 
 # Install NixOS
 info "Installing NixOS from local flake..."
-ssh -t ${SSH_OPTS} "$TARGET" "sudo nixos-install --flake /mnt/etc/nixos#${HOST} --no-channel-copy"
+ssh -t ${SSH_OPTS} "$TARGET" "sudo nixos-install --flake /mnt/etc/nixos#${HOST} --no-channel-copy --no-root-password"
 
 # Unmount
 info "Unmounting..."
