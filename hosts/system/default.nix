@@ -1,38 +1,58 @@
 # Main system configuration for ROCK5 ITX
 {
   config,
+  lib,
   settings,
   ...
 }:
 
 {
   imports = [
-    # System configuration
     ./packages.nix
     ./partitions.nix
-    ./scripts.nix
-
-    # SOPS secrets
-    ../../secrets/sops.nix
-
-    # Services
-    # ./services/cockpit.nix
-    # ./services/caddy.nix
-    # ./services/containers.nix
-    ./services/remote-desktop.nix
-    # ./services/arr-suite.nix
-    # ./services/transmission.nix
-    ./services/tasks.nix
+    ./services.nix
   ];
 
-  # System configuration
+  # ===================
+  # Networking
+  # ===================
   networking = {
     hostName = settings.hostName;
-    networkmanager.enable = true;
-    hostId = "8425e349"; # Required for ZFS. Leave it or randomize it- doesn't matter.
+    useDHCP = false; # Using static IP below
+    enableIPv6 = true;
+    hostId = "8425e349"; # Required for ZFS
+
+    interfaces.${settings.network.interface} = {
+      ipv4.addresses = [
+        {
+          address = settings.network.address;
+          prefixLength = settings.network.prefixLength;
+        }
+      ];
+    };
+
+    defaultGateway = settings.network.gateway;
+    nameservers = [
+      settings.network.dnsPrimary
+      settings.network.dnsSecondary
+    ];
+
+    wireless = lib.mkIf (settings.enableWifi or false) {
+      enable = true;
+      secretsFile = config.sops.templates.wifiEnv.path;
+      networks."${settings.wifiSsid}".psk = "@WIFI_PSK@";
+    };
   };
 
-  # mDNS for hostname.local resolution
+  # ===================
+  # SSH & Discovery
+  # ===================
+  services.openssh = {
+    enable = true;
+    settings.PasswordAuthentication = settings.allowPasswordAuth;
+    settings.PermitRootLogin = "no";
+  };
+
   services.avahi = {
     enable = true;
     nssmdns4 = true;
@@ -40,18 +60,16 @@
     publish.addresses = true;
   };
 
-  # Enable SSH access
-  services.openssh = {
-    enable = true;
-    settings.PasswordAuthentication = false;
-    settings.PermitRootLogin = "no";
-  };
+  # Enable Bluetooth (required for Matter commissioning)
+  hardware.bluetooth.enable = true;
+  hardware.bluetooth.powerOnBoot = true;
 
-  # Boot configuration
+  # ===================
+  # Boot configuration (Rock5 ITX specific)
+  # ===================
   boot.loader = {
     systemd-boot = {
       enable = true;
-      # Generate device tree into EFI partition
       extraFiles.${config.hardware.deviceTree.name} =
         "${config.hardware.deviceTree.package}/${config.hardware.deviceTree.name}";
       extraInstallCommands = ''
@@ -67,18 +85,32 @@
     timeout = 3;
   };
 
-  # User configuration
+  # ===================
+  # User
+  # ===================
   users.users.${settings.adminUser} = {
     isNormalUser = true;
     hashedPasswordFile = config.sops.secrets.user_hashedPassword.path;
     description = settings.description;
     extraGroups = [
       "wheel"
-      "networkmanager"
       "video"
     ];
     openssh.authorizedKeys.keys = settings.sshPubKeys;
   };
 
+  security.sudo.wheelNeedsPassword = false;
+
+  # ===================
+  # Logging & Misc
+  # ===================
+  services.journald.extraConfig = "SystemMaxUse=1000M";
+
+  nix.settings.trusted-users = [ "@wheel" ];
+
+  # ===================
+  # System
+  # ===================
+  time.timeZone = settings.timeZone;
   system.stateVersion = settings.stateVersion;
 }

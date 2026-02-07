@@ -2,7 +2,7 @@
 { settings, ... }:
 
 let
-  flakeRef = "github:${settings.repoOwner}/${settings.repoName}#${settings.hostName}";
+  flakeRef = "github:${settings.repoUrl}#${settings.hostName}";
 in
 {
   # Automatic system upgrades

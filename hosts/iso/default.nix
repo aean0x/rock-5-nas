@@ -1,49 +1,31 @@
+# Installer configuration — shared by ISO and netboot images
+# Minimal bootable environment with SSH access for remote install via `./deploy install`.
 {
   pkgs,
   lib,
-  config,
   settings,
   ...
 }:
-let
-  # Workaround to pass the key.txt file to the ISO. Ensure the KEY_FILE_PATH environment
-  # variable is set to the path of the key.txt file before running nix-build
-  keyFilePath = builtins.getEnv "KEY_FILE_PATH";
-  keyContent = if keyFilePath != "" then builtins.readFile keyFilePath else "";
-in
 {
   boot.supportedFilesystems = lib.mkForce [
     "ext4"
     "vfat"
   ];
 
-  # ISO specific configuration
-  image.fileName = "${settings.hostName}-${config.system.nixos.label}-${pkgs.stdenv.hostPlatform.system}.iso";
-  isoImage = {
-
-    volumeID = builtins.substring 0 32 "${settings.hostName}_${config.system.nixos.label}"; # limit to 32 characters
-    makeEfiBootable = true;
-    makeBiosBootable = false;
-  };
-
-  # Disable git and documentation to avoid build issues during ISO cross-compilation
+  # Disable git and documentation to reduce ISO size
   programs.git.enable = false;
   documentation.enable = false;
   documentation.man.enable = false;
   documentation.doc.enable = false;
 
-  # Include install script
-  environment.systemPackages = with pkgs; [
-    (callPackage ./install.nix { inherit settings; })
-  ];
-
-  # Ensure networking is enabled
+  # Networking — DHCP for flexibility, but advertise our real hostname via mDNS
+  networking.hostName = settings.hostName;
   networking.useDHCP = lib.mkForce true;
 
-  # Enable SSH for remote setup
+  # SSH with pubkey auth (keys baked in from settings.nix)
   services.openssh = {
     enable = true;
-    settings.PasswordAuthentication = true;
+    settings.PasswordAuthentication = true; # Fallback for ISO
   };
 
   # mDNS for hostname.local resolution
@@ -54,28 +36,23 @@ in
     publish.addresses = true;
   };
 
-  # Default user for ISO (password auth only)
+  # Admin user with SSH keys + fallback password
   users.users.${settings.adminUser} = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
     password = settings.setupPassword;
+    openssh.authorizedKeys.keys = settings.sshPubKeys;
   };
 
-  # Activation script to include key.txt
-  system.activationScripts = {
-    setupSopsKey =
-      if keyContent != "" then
-        ''
-          mkdir -p /var/lib/sops-nix
-          echo "${keyContent}" > /var/lib/sops-nix/key.txt
-          chmod 600 /var/lib/sops-nix/key.txt
-        ''
-      else
-        ''
-          echo "Error: KEY_FILE_PATH environment variable not set or file not found."
-          exit 1
-        '';
-  };
+  security.sudo.wheelNeedsPassword = false;
+
+  # Useful for remote install
+  environment.systemPackages = with pkgs; [
+    parted
+    gptfdisk
+    util-linux
+    rsync
+  ];
 
   system.stateVersion = settings.stateVersion;
 }

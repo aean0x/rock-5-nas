@@ -1,19 +1,39 @@
-# Centralized SOPS configuration
-# Import this module in hosts/system/default.nix
-{ ... }:
+# SOPS secrets configuration
+# Decrypted at runtime via sops-nix
+{
+  config,
+  lib,
+  settings,
+  ...
+}:
+let
+  wifiEnabled = settings.enableWifi or false;
+in
 {
   sops = {
     defaultSopsFile = ./secrets.yaml;
     age.keyFile = "/var/lib/sops-nix/key.txt";
 
-    secrets = {
-      # User secrets
-      user_hashedPassword = { };
+    secrets = lib.mkMerge [
+      {
+        user_hashedPassword = { };
+        tailscale_authKey = { };
+      }
+      (lib.mkIf wifiEnabled {
+        wifi_psk = { };
+      })
+    ];
 
-      # VPN and service credentials
-      vpn_wgConf = { };
-      services_transmission_credentials = { };
-      services_caddy_cloudflareToken = { };
+    templates = lib.mkIf wifiEnabled {
+      wifiEnv = {
+        owner = "root";
+        group = "root";
+        mode = "0400";
+        path = "/run/wifi.env";
+        content = ''
+          WIFI_PSK="${config.sops.placeholder."wifi_psk"}"
+        '';
+      };
     };
   };
 }

@@ -12,6 +12,7 @@ pkgs.mkShell {
 
     # Remote deployment
     openssh
+    rsync
 
     # Build tools
     nix
@@ -22,16 +23,19 @@ pkgs.mkShell {
     gnused
     coreutils
     bash
+
+    # PXE netboot server
+    dnsmasq
+    python3
   ];
 
   shellHook = ''
-    echo "NAS development shell"
+    echo "ROCK5 ITX NAS development shell"
     echo ""
     echo "Available commands:"
-    echo "  ./build-iso          - Build installer ISO"
-    echo "  ./deploy <cmd>       - Remote NAS management"
-    echo "  ./secrets/encrypt    - Encrypt secrets"
-    echo "  ./secrets/decrypt    - Decrypt secrets for editing"
+    echo "  ./deploy <cmd>        - Unified management (build-iso, netboot, install, remote-build, etc.)"
+    echo "  ./secrets/encrypt     - Encrypt secrets"
+    echo "  ./secrets/decrypt     - Decrypt secrets for editing"
     echo ""
   '';
 }

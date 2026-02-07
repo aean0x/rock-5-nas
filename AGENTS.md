@@ -5,106 +5,114 @@ Technical roadmap for AI agents working with this NixOS flake configuration.
 ## Architecture Overview
 
 ```
-flake.nix                    # Entry point - two outputs: system config + ISO builder
-├── settings.nix             # Minimal config (hostname, adminUser, repoUrl)
+flake.nix                    # Entry point - three outputs: system, ISO, netboot
+├── settings.nix             # All user config (hostname, network, admin user)
 ├── hardware-configuration.nix  # RK3588 kernel, device tree, boot params
+├── deploy                   # Lean command router (sources scripts/common.sh)
+├── shell.nix                # Dev shell (age, sops, rsync, dnsmasq, etc.)
+├── scripts/                 # All scripts (workstation + on-device)
+│   ├── common.sh            # Shared: settings parsing, colors, check_ssh, build helpers
+│   ├── build-iso.sh         # ISO build + USB write prompt
+│   ├── netboot.sh           # Netboot build + PXE server (dnsmasq)
+│   ├── install.sh           # Remote install: partition, copy repo, nixos-install
+│   └── scripts.nix          # On-device management commands (switch, help, docker-ps, etc.)
 ├── hosts/
 │   ├── system/              # Target system (what gets installed)
-│   │   ├── default.nix      # Boot, networking, users, SSH - imports services/*
+│   │   ├── default.nix      # Networking, SSH, users, boot loader, WiFi
 │   │   ├── packages.nix     # System-wide packages
-│   │   ├── scripts.nix      # System management scripts (rebuild, cleanup)
 │   │   ├── partitions.nix   # Filesystem mounts (label-based), ZFS config
-│   │   └── services/        # Optional modules (uncomment in default.nix to enable)
+│   │   ├── services.nix     # Service imports (uncomment to enable)
+│   │   └── services/        # Service modules
+│   │       ├── containers.nix   # Docker containers (HA, Matter, Tailscale, OTBR)
 │   │       ├── arr-suite.nix    # nixarr media stack (Sonarr, Radarr, etc.)
 │   │       ├── caddy.nix        # Reverse proxy with Cloudflare DNS ACME
 │   │       ├── cockpit.nix      # Web-based system management
-│   │       ├── containers.nix   # Docker + Podman configuration
 │   │       ├── remote-desktop.nix # XFCE + xrdp
 │   │       ├── tasks.nix        # Auto-upgrade and garbage collection
 │   │       └── transmission.nix # Torrent client with VPN killswitch
-│   └── iso/                  # Installer image
-│       ├── default.nix      # Cross-compilation setup, SOPS key injection
-│       └── install.nix      # Installer script
+│   └── iso/                  # Installer image (shared by ISO + netboot)
+│       └── default.nix      # Minimal env: SSH + pubkeys + avahi (no secrets)
 └── secrets/                 # SOPS-encrypted secrets
-    ├── sops.nix             # Centralized secrets module (imported by system)
+    ├── sops.nix             # Secrets module (conditional WiFi, mkIf guards)
     ├── secrets.yaml         # Encrypted secrets (committed)
     ├── secrets.yaml.example # Template for new users
-    ├── encrypt           # Key generation + encryption workflow
-    └── decrypt           # Decrypt for editing
+    ├── encrypt              # Key generation + encryption workflow
+    └── decrypt              # Decrypt for editing
 ```
-
-## Build Targets
-
-- `./build-iso` - Validates settings, sets up SOPS, builds ISO with `--impure`
-- `nix build .#iso` - Direct ISO build (requires KEY_FILE_PATH env var)
 
 ## Key Patterns
 
 ### Settings vs Secrets
 
-**settings.nix** - Values needed at Nix eval time:
-- `repoUrl` - Single string "owner/repo", parsed into repoOwner/repoName
-- `hostName`, `adminUser` - Must be known at build time
-- `setupPassword` - Temp password for ISO SSH access
-- Build systems (hostSystem, targetSystem)
+**settings.nix** — Values needed at Nix eval time:
+- `repoUrl` — Single string "owner/repo" for flake references
+- `hostName`, `adminUser`, `setupPassword` — Must be known at build time
+- `network` — Static IP config (interface, address, gateway, DNS)
+- `enableWifi`, `wifiSsid` — Optional WiFi (PSK is a secret)
+- Build systems (`hostSystem`, `targetSystem`) for cross-compilation
+- Service ports live in their respective modules (e.g. containers.nix let-in block)
 
-**secrets/sops.nix** - Runtime secrets (decrypted at activation):
-- `user.hashedPassword` - Login password
-- `user.pubKey` - SSH authorized key
-- `vpn.wgConf` - WireGuard config for VPN
-- `services.transmission.credentials` - Transmission RPC auth
-- `services.caddy.cloudflareToken` - Cloudflare API token (if using caddy)
+**secrets/sops.nix** — Runtime secrets (decrypted at activation):
+- `user_hashedPassword` — Login password
+- `tailscale_authKey` — Tailscale auth key
+- `wifi_psk` — WiFi password (conditional on `settings.enableWifi`)
+- Service-specific secrets declared in their respective modules
+
+### Container Exec (auto-derived)
+
+Container wrapper scripts are auto-generated from `config.virtualisation.oci-containers.containers` in `scripts.nix`:
+- Each container gets a shell command: `<name>` shells in, `<name> <cmd>` runs a command
+- `help` auto-lists available containers
+- `deploy` catches unrecognized commands and passes through via SSH (device-side wrappers handle them)
+
+### Installation Flow
+
+Fully remote from workstation — two boot options:
+1. **USB ISO**: `./deploy build-iso` — builds pure ISO, offers to write to USB
+2. **PXE netboot**: `./deploy netboot` — builds netboot images, starts dnsmasq PXE server
+
+Then:
+3. `./deploy install` — SSH in, partition, copy repo + SOPS key, nixos-install from local flake
+4. Reboot — device is fully operational
+5. Subsequent updates: `./deploy remote-switch` or on-device `switch`
 
 ### SOPS Flow
-1. `build-iso` validates repoUrl matches git remote, prompts to edit if not
-2. `encrypt` detects forked repos (can't decrypt existing secrets.yaml)
-3. Offers to overwrite with example, opens nano for editing
-4. Generates age key if missing, encrypts to secrets.yaml
-5. `build-iso` embeds key in ISO via `KEY_FILE_PATH` env var
-6. Installer copies key to `/mnt/var/lib/sops-nix/key.txt`
-7. System decrypts secrets at activation time
+1. `secrets/encrypt` generates age key if missing, handles fork detection
+2. `secrets/decrypt` decrypts for editing
+3. `./deploy install` SCPs key to `/var/lib/sops-nix/key.txt` during installation
+4. System decrypts secrets at activation time
 
 ### Remote Flake Workflow
 1. Edit config on dev machine, commit, push
-2. On NAS: run `rebuild` (fetches from `github:owner/repo#hostname`)
+2. On NAS: run `switch` (fetches from `github:owner/repo#hostname`)
 3. Auto-upgrade runs weekly (Sunday 3AM) if `tasks.nix` is enabled
+4. Or from workstation: `./deploy remote-switch` (builds locally, pushes closure)
 
 ## Modification Guidelines
 
 ### Adding Secrets
-1. Add key to `secrets/sops.nix` secrets block
+1. Add key to `secrets/sops.nix` secrets block (use `lib.mkIf` for conditional secrets)
 2. Add placeholder to `secrets.yaml.example`
 3. Run `./secrets/decrypt` → edit → `./secrets/encrypt`
-4. Reference as `config.sops.secrets."path".path` in modules
+4. Reference as `config.sops.secrets."key".path` in modules
 
 ### Enabling Services
-1. Uncomment the import line in `hosts/system/default.nix`
+1. Uncomment the import line in `hosts/system/services.nix`
 2. Ensure required secrets are configured (check service file for `config.sops.secrets.*` references)
 3. Commit, push, rebuild
 
-### Forking for Your Own Use
-1. Fork repo, clone locally
-2. Run `./build-iso` - will detect mismatched repoUrl and prompt to edit settings.nix
-3. `encrypt` detects foreign secrets, prompts to overwrite with example
-4. Fill in your secrets in nano when prompted
-5. Commit changes, build completes
-
-## Installation Flow
-
-1. `build-iso` → ISO with embedded SOPS key
-2. Boot ISO, SSH as `setup` (password: `nixos` or as set in settings.setupPassword)
-3. Run `sudo nixinstall`
-4. Select target device (GPT, optional EMMC boot)
-5. Installer creates labeled partitions: `EFI`, `ROOT`
-6. Copies SOPS key to `/mnt/var/lib/sops-nix/key.txt`
-7. Installs from remote flake (no generated config needed)
-8. Reboot into installed system
+### Adding Containers
+1. Add container definition to `containers.nix` under `virtualisation.oci-containers.containers`
+2. Container exec wrapper is auto-generated (no manual step needed)
+3. Firewall ports: add to `networking.firewall` in the same file
+4. Pull timer and restart timer auto-include all containers
 
 ## Gotchas
 
-- ISO build requires `--impure` for SOPS key injection via `builtins.getEnv`
+- ISO/netboot build requires aarch64 support (binfmt/qemu or remote builder) since target is aarch64
 - `adminUser` cannot move to SOPS (needed at Nix eval time for attribute name)
-- ISO uses password auth only; installed system uses SOPS `user.pubKey`
-- VPN killswitch: Transmission traffic only flows if tunnel is active
-- Filesystem mounts use labels (`ROOT`, `EFI`) - no hardware-configuration.nix generation needed
-- Service files need `settings` in function args if they reference `settings.adminUser`
+- Static IP is used (no NetworkManager) — `useDHCP = false` in system config, `true` in installer
+- Services are toggled in `hosts/system/services.nix` by uncommenting imports
+- `hosts/iso/default.nix` is shared between ISO and netboot — `isoImage` config lives in flake.nix inline module
+- `setupPassword` is only used in the installer, not the installed system
+- Kernel 6.18 is required for rk3588 — builds are slow due to cross-compilation
