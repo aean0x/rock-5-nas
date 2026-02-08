@@ -20,6 +20,10 @@ in
         tailscale_authKey = { };
         openclaw_gateway_token = { };
         openclaw_gateway_password = { };
+        openrouter_api_key = { };
+        anthropic_api_key = { };
+        brave_search_api_key = { };
+        telegram_bot_token = { };
         composio_encryption_key = { };
         composio_jwt_secret = { };
         onedrive_rclone_config = {

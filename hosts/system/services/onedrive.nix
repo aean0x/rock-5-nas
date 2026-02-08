@@ -19,19 +19,16 @@ in
       Environment = [
         "HOME=/var/lib/openclaw"
       ];
-      ExecStart = [
-        "${pkgs.bash}/bin/bash"
-        "-lc"
-        ''
-          set -euo pipefail
-          mkdir -p "${workspaceRoot}/Shared" "${workspaceRoot}/Documents"
-          ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "onedrive:Shared" "${workspaceRoot}/Shared"
-          ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "${workspaceRoot}/Shared" "onedrive:Shared"
-          ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "onedrive:Documents" "${workspaceRoot}/Documents"
-          ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "${workspaceRoot}/Documents" "onedrive:Documents"
-        ''
-      ];
     };
+
+    script = ''
+      set -euo pipefail
+      mkdir -p "${workspaceRoot}/Shared" "${workspaceRoot}/Documents"
+      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "onedrive:Shared" "${workspaceRoot}/Shared"
+      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "${workspaceRoot}/Shared" "onedrive:Shared"
+      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "onedrive:Documents" "${workspaceRoot}/Documents"
+      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "${workspaceRoot}/Documents" "onedrive:Documents"
+    '';
   };
 
   systemd.timers.onedrive-sync = {
@@ -43,5 +40,6 @@ in
       RandomizedDelaySec = "2m";
       Unit = "onedrive-sync.service";
     };
+
   };
 }

@@ -10,6 +10,10 @@ let
   otbrRestPort = 8081;
 in
 {
+  services.caddy.proxyServices = {
+    "ha.rocknas.local" = haPort;
+  };
+
   virtualisation.oci-containers.containers = {
     # ===================
     # Home Assistant
@@ -123,10 +127,27 @@ in
   };
 
   # ===================
+  # Reverse proxy trust (Caddy on 127.0.0.1)
+  # ===================
+  systemd.services.docker-home-assistant.preStart = ''
+        mkdir -p /var/lib/home-assistant
+        cat > /var/lib/home-assistant/http.yaml <<'EOF'
+    use_x_forwarded_for: true
+    trusted_proxies:
+      - "127.0.0.1"
+      - "::1"
+    EOF
+        if ! grep -q 'http: !include http.yaml' /var/lib/home-assistant/configuration.yaml 2>/dev/null; then
+          echo 'http: !include http.yaml' >> /var/lib/home-assistant/configuration.yaml
+        fi
+  '';
+
+  # ===================
   # Service ordering
   # ===================
   systemd.services.docker-otbr = {
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
   };
+
 }
