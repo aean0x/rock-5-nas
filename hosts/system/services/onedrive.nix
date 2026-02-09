@@ -23,11 +23,11 @@ in
 
     script = ''
       set -euo pipefail
-      mkdir -p "${workspaceRoot}/Shared" "${workspaceRoot}/Documents"
-      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "onedrive:Shared" "${workspaceRoot}/Shared"
-      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "${workspaceRoot}/Shared" "onedrive:Shared"
-      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "onedrive:Documents" "${workspaceRoot}/Documents"
-      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "${workspaceRoot}/Documents" "onedrive:Documents"
+      mkdir -p "${workspaceRoot}/onedrive/Shared" "${workspaceRoot}/onedrive/Documents"
+      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "onedrive:Shared" "${workspaceRoot}/onedrive/Shared"
+      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "${workspaceRoot}/onedrive/Shared" "onedrive:Shared"
+      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "onedrive:Documents" "${workspaceRoot}/onedrive/Documents"
+      ${pkgs.rclone}/bin/rclone copy --update --config "${onedriveConfig}" "${workspaceRoot}/onedrive/Documents" "onedrive:Documents"
     '';
   };
 

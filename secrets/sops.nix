@@ -26,6 +26,8 @@ in
         telegram_bot_token = { };
         composio_encryption_key = { };
         composio_jwt_secret = { };
+        google_workspace_client_id = { };
+        google_workspace_client_secret = { };
         onedrive_rclone_config = {
           owner = "openclaw";
           group = "openclaw";
