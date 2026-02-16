@@ -1,7 +1,5 @@
 # FileBrowser: Web-based file manager
 {
-  config,
-  pkgs,
   settings,
   ...
 }:
