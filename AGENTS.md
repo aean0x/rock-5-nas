@@ -28,12 +28,13 @@ flake.nix                    # Entry point - three outputs: system, ISO, netboot
 │   │       ├── home-assistant.nix # Home Assistant, Matter Server, OTBR (Docker)
 │   │       ├── tailscale.nix      # Tailscale VPN (native NixOS)
 │   │       ├── adguard.nix        # AdGuard Home DNS (native NixOS)
-│   │       ├── openclaw.nix       # OpenClaw + Composio + Signal (Docker)
+│   │       ├── openclaw-docker.nix # OpenClaw gateway + CLI (Docker)
+│   │       ├── openclaw.nix       # OpenClaw native (disabled)
 │   │       ├── cloudflared.nix    # Cloudflare tunnel (native NixOS)
 │   │       ├── remote-desktop.nix # XFCE + xrdp
 │   │       ├── tasks.nix          # Auto-upgrade and garbage collection
 │   │       ├── arr-suite.nix      # nixarr media stack (Sonarr, Radarr, etc.)
-│   │       ├── caddy.nix          # Reverse proxy with Cloudflare DNS ACME
+│   │       ├── caddy.nix          # Reverse proxy with ACME DNS-01 via Cloudflare
 │   │       ├── cockpit.nix        # Web-based system management
 │   │       └── transmission.nix   # Torrent client with VPN killswitch
 │   └── iso/                  # Installer image (shared by ISO + netboot)
@@ -55,6 +56,7 @@ flake.nix                    # Entry point - three outputs: system, ISO, netboot
 **settings.nix** — Values needed at Nix eval time:
 - `repoUrl` — Single string "owner/repo" for flake references
 - `hostName`, `adminUser`, `setupPassword` — Must be known at build time
+- `domain` — Public domain for ACME certs (subdomains defined per-service)
 - `network` — Static IP config (interface, address, prefixLength, gateway, DNS)
 - `enableWifi`, `wifiSsid` — Optional WiFi (PSK is a secret)
 - Build systems (`hostSystem`, `targetSystem`) for cross-compilation
@@ -68,6 +70,7 @@ flake.nix                    # Entry point - three outputs: system, ISO, netboot
 - `openclaw_gateway_token` — OpenClaw gateway authentication
 - `composio_encryption_key`, `composio_jwt_secret` — Composio self-hosted secrets
 - `signal_phone_number` — Signal CLI phone number
+- `cloudflare_dns_api_token` — Cloudflare API token for ACME DNS-01 challenge (used by Caddy)
 - `cloudflared_tunnel_credentials` — Cloudflare tunnel JSON (owned by cloudflared user)
 
 ### Service Architecture
@@ -80,7 +83,7 @@ Philosophy: **Docker for complex/dependency-heavy stacks, native NixOS for simpl
 | Home Assistant + Matter + OTBR | Docker | `home-assistant.nix` |
 | Tailscale VPN | Native | `tailscale.nix` |
 | AdGuard Home DNS | Native | `adguard.nix` |
-| OpenClaw + Composio + Signal | Docker | `openclaw.nix` |
+| OpenClaw gateway + CLI | Docker | `openclaw-docker.nix` |
 | Cloudflare tunnel | Native | `cloudflared.nix` |
 
 **containers.nix** is pure infrastructure — Docker engine, Podman, ZFS storage driver, auto-pull/restart timers. It contains **no container definitions**. Container definitions live in their respective service modules.
@@ -99,6 +102,13 @@ Docker containers that need sops secrets use `systemd.services.docker-<name>.pre
 2. Read secrets from sops paths (`cat ${config.sops.secrets.*.path}`)
 3. Write env files to `/run/<name>.env` (mode 600)
 4. Container references via `environmentFiles = [ "/run/<name>.env" ]`
+
+### OpenClaw Docker Architecture
+
+OpenClaw runs as two Docker containers (`openclaw` gateway + `openclaw-cli`) under a dedicated `openclaw` user (UID 1540). State at `/var/lib/openclaw/` with subdirs volume-mounted into containers.
+
+- **`docker-openclaw.preStart`** — creates data dirs, deep-merges Nix-declared config into `openclaw.json` via jq, writes Google Workspace credentials, writes `/run/openclaw.env` with all API keys from SOPS
+- **`openclaw-browser-setup`** (oneshot, after gateway) — installs Chromium deps, Playwright, Bun, QMD inside the container
 
 ### ZFS Pool
 

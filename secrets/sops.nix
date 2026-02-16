@@ -21,6 +21,7 @@ in
         openclaw_gateway_token = { };
         openclaw_gateway_password = { };
         openrouter_api_key = { };
+        google_api_key = { };
         anthropic_api_key = { };
         brave_search_api_key = { };
         telegram_bot_token = { };
@@ -28,11 +29,18 @@ in
         composio_jwt_secret = { };
         google_workspace_client_id = { };
         google_workspace_client_secret = { };
+        google_places_api_key = { };
         onedrive_rclone_config = {
           owner = "openclaw";
           group = "openclaw";
           mode = "0400";
         };
+        browserless_api_token = { };
+        maton_api_key = { };
+        ha_token = { };
+        ha_url = { };
+        cloudflare_dns_api_token = { };
+        xai_api_key = { };
       }
       (lib.mkIf (config.users.users ? cloudflared) {
         cloudflared_tunnel_credentials = {

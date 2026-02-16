@@ -58,13 +58,13 @@ in
         echo "Try complete at $(date) - will revert on reboot" | tee -a "${logFile}"
       '')
 
-      # Update flake inputs and switch
+      # Update flake inputs only (no rebuild)
       (writeShellScriptBin "update" ''
         set -euo pipefail
-        echo "=== Update started at $(date) ===" | tee "${logFile}"
-        echo "Rebuilding from ${flakeRef} with --refresh..." | tee -a "${logFile}"
-        sudo nixos-rebuild switch --flake "${flakeRef}" --refresh "$@" 2>&1 | tee -a "${logFile}"
-        echo "Update complete at $(date)" | tee -a "${logFile}"
+        echo "=== Flake update started at $(date) ===" | tee "${logFile}"
+        cd /etc/nixos 2>/dev/null || { echo "No /etc/nixos — run from a flake checkout"; exit 1; }
+        sudo nix flake update 2>&1 | tee -a "${logFile}"
+        echo "Flake inputs updated at $(date). Run 'switch' to apply." | tee -a "${logFile}"
       '')
 
       # View last build log
@@ -178,7 +178,7 @@ in
         echo "  switch           Apply configuration immediately (nixos-rebuild switch)"
         echo "  boot             Apply on next reboot (nixos-rebuild boot)"
         echo "  try              Apply temporarily (nixos-rebuild test)"
-        echo "  update           Update flake inputs and switch"
+        echo "  update           Update flake inputs (no rebuild)"
         echo "  rollback         Rollback to previous generation"
         echo "  cleanup          Garbage collect and optimize store"
         echo "  build-log        View last build log"

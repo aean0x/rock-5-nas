@@ -9,7 +9,7 @@ let
 in
 {
   services.caddy.proxyServices = {
-    "adguard.rocknas.local" = port;
+    "adguard.${settings.domain}" = port;
   };
 
   services.adguardhome = {
@@ -52,12 +52,12 @@ in
 
         rewrites = [
           {
-            domain = "rocknas.local";
+            domain = settings.domain;
             answer = lanIP;
             enabled = true;
           }
           {
-            domain = "*.rocknas.local";
+            domain = "*.${settings.domain}";
             answer = lanIP;
             enabled = true;
           }

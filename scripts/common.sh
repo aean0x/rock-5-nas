@@ -94,6 +94,11 @@ check_ssh() {
     exit 1
 }
 
+update_flake() {
+    info "Updating flake inputs..."
+    nix flake update --print-build-logs
+}
+
 build_system() {
     info "Building NixOS configuration for ${HOST}..."
     info "This may take a while (cross-compiling or emulating aarch64)..."

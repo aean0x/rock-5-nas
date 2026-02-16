@@ -16,7 +16,7 @@ let
 in
 {
   services.caddy.proxyServices = {
-    "ha.rocknas.local" = haPort;
+    "homeassistant.${settings.domain}" = haPort;
   };
 
   virtualisation.oci-containers.containers = {

@@ -20,6 +20,9 @@
     # "ssh-ed25519 AAAA... user@laptop"
   ];
 
+  # Public domain (subdomains like ha.aean.io are created per-service)
+  domain = "aean.io";
+
   # Repository (format: "owner/repo")
   repoUrl = "aean0x/rock-5-nas";
 

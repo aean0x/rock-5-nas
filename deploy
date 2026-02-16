@@ -22,11 +22,14 @@ usage() {
     echo "  switch               nixos-rebuild switch"
     echo "  boot                 nixos-rebuild boot"
     echo "  try                  nixos-rebuild test"
-    echo "  update               Update flake inputs and switch"
+    echo "  update               Update flake inputs (no rebuild)"
     echo "  rollback             Roll back to previous system generation"
     echo "  cleanup              Garbage collect and optimize store"
     echo "  build-log            View last build log"
     echo "  system-info          Show system status and disk usage"
+    echo ""
+    echo "Services:"
+    echo "  onedrive-sync        Trigger OneDrive sync now"
     echo ""
     echo "Troubleshooting:"
     echo "  docker-ps            List containers"
@@ -39,6 +42,7 @@ usage() {
     echo "                       Use 'docker-ps' to see running containers"
     echo ""
     echo "Workstation remote-build (recommended for low-memory devices):"
+    echo "  remote-update        Update flake inputs (no build)"
     echo "  remote-switch        Build on workstation and switch"
     echo "  remote-boot          Build on workstation, activate on reboot"
     echo "  remote-try           Build on workstation, activate temporarily"
@@ -67,6 +71,12 @@ case "$CMD" in
         ssh -tt ${SSH_OPTS} "$TARGET" "help"
         ;;
 
+    onedrive-sync)
+        check_ssh
+        info "Triggering OneDrive sync..."
+        ssh -t ${SSH_OPTS} "$TARGET" "sudo systemctl start onedrive-sync.service && sudo journalctl -u onedrive-sync.service -n 20 --no-pager"
+        ;;
+
     # On-device commands (forwarded via SSH)
     switch|boot|try|update|rollback|cleanup|build-log|system-info|\
     docker-ps|docker-stats|docker-restart|logs|journal)
@@ -89,6 +99,11 @@ case "$CMD" in
 
     install)
         exec "${REPO_ROOT}/scripts/install.sh"
+        ;;
+
+    # Update flake inputs only (no build)
+    remote-update)
+        update_flake
         ;;
 
     # Workstation build+deploy modes

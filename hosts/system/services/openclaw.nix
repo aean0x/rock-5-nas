@@ -2,11 +2,19 @@
 {
   config,
   pkgs,
+  inputs,
+  settings,
   ...
 }:
 let
   gatewayPort = 18789;
-  bridgePort = 18790;
+
+  steipetePkgs =
+    inputs.nix-openclaw.inputs.nix-steipete-tools.packages.${pkgs.stdenv.hostPlatform.system} or { };
+
+  toolSets = import (inputs.nix-openclaw + "/nix/tools/extended.nix") {
+    inherit pkgs steipetePkgs;
+  };
 
   # User home dir; OpenClaw naturally uses ~/.openclaw/ for state
   openclawHome = "/home/openclaw";
@@ -25,7 +33,7 @@ let
     gateway = {
       port = gatewayPort;
       mode = "local";
-      bind = "lan";
+      bind = "auto";
       auth = {
         mode = "password"; # reads OPENCLAW_GATEWAY_PASSWORD env
         allowTailscale = true;
@@ -37,7 +45,6 @@ let
       trustedProxies = [
         "127.0.0.1"
         "::1"
-        "172.17.0.1" # Docker bridge gateway (kept for compatibility)
       ];
       tailscale = {
         mode = "off"; # Tailscale runs natively on host
@@ -46,19 +53,32 @@ let
 
     # -- Browser ---------------------------------------------------------------
     browser = {
+      enabled = true;
       executablePath = "${pkgs.chromium}/bin/chromium";
       headless = true;
       noSandbox = true;
+      defaultProfile = "remote";
+      profiles = {
+        remote = {
+          cdpUrl = "__BROWSERLESS_CDP_URL__";
+          color = "#00AA00";
+        };
+        local = {
+          cdpPort = 18800;
+          color = "#FF0000";
+        };
+      };
     };
 
     # -- Agent defaults --------------------------------------------------------
     agents = {
       defaults = {
         model = {
-          primary = "openrouter/x-ai/grok-4.1-fast";
+          primary = "google/gemini-flash-latest";
           fallbacks = [
-            "openrouter/google/gemini-3-flash-preview"
-            "openrouter/openai/gpt-4.1-mini"
+            "google/gemini-2.5-flash"
+            "gemini-flash"
+            # "grok-medium"
           ];
         };
         models = {
@@ -80,41 +100,33 @@ let
           "openrouter/google/gemini-3-flash-preview" = {
             alias = "gemini-flash";
           };
-          "openrouter/google/gemini-2.5-flash" = {
-            alias = "gemini-2.5";
-          };
-          "openrouter/x-ai/grok-4.1-fast" = {
-            alias = "grok";
-            params = {
-              reasoning = {
-                enabled = false; # Default non-reasoning for flash-like speed.
-              };
-            };
-          };
-          "openrouter/x-ai/grok-4.1-fast:medium" = {
-            alias = "grok-medium";
-            params = {
-              reasoning = {
-                enabled = true;
-                effort = "medium"; # Balanced depth for sonnet-like restraint/multi-step.
-              };
-            };
-          };
-          "openrouter/x-ai/grok-4.1-fast:xhigh" = {
-            alias = "grok-xhigh";
-            params = {
-              reasoning = {
-                enabled = true;
-                effort = "xhigh"; # Max critique layers for opus-like rigor.
-              };
-            };
-          };
-          "openrouter/openai/gpt-4.1-mini" = {
-            alias = "gpt-mini";
-          };
-          "openrouter/openai/gpt-4.1-nano" = {
-            alias = "gpt-nano";
-          };
+          # "openrouter/x-ai/grok-4.1-fast" = {
+          #   alias = "grok";
+          #   params = {
+          #     reasoning = {
+          #       enabled = true;
+          #       effort = "low";
+          #     };
+          #   };
+          # };
+          # "openrouter/x-ai/grok-4.1-fast:medium" = {
+          #   alias = "grok-medium";
+          #   params = {
+          #     reasoning = {
+          #       effort = "medium";
+          #       enabled = true;
+          #     };
+          #   };
+          # };
+          # "openrouter/x-ai/grok-4.1-fast:xhigh" = {
+          #   alias = "grok-xhigh";
+          #   params = {
+          #     reasoning = {
+          #       effort = "xhigh";
+          #       enabled = true;
+          #     };
+          #   };
+          # };
         };
 
         memorySearch = {
@@ -125,43 +137,51 @@ let
           experimental = {
             sessionMemory = true;
           };
-          provider = "openai";
-          model = "text-embedding-3-small";
-          remote = {
-            baseUrl = "https://openrouter.ai/api/v1";
-          };
+          provider = "gemini";
+          model = "gemini-embedding-001";
         };
 
         contextPruning = {
           mode = "cache-ttl";
           ttl = "6h";
-          keepLastAssistants = 3;
+          keepLastAssistants = 8;
         };
 
         compaction = {
           mode = "default";
           memoryFlush = {
             enabled = true;
-            softThresholdTokens = 40000;
+            softThresholdTokens = 60000;
             prompt = "Extract key decisions, state changes, lessons, blockers to memory/YYYY-MM-DD.md. Format: ## [HH:MM] Topic. Skip routine work. NO_FLUSH if nothing important.";
             systemPrompt = "Compacting session context. Extract only what's worth remembering. No fluff.";
           };
         };
 
         heartbeat = {
-          model = "openrouter/arcee-ai/trinity-mini:free";
+          # model = "openrouter/x-ai/grok-4.1-fast";
         };
 
         maxConcurrent = 4;
         subagents = {
           maxConcurrent = 8;
-          model = "gemini-flash";
+          model = {
+            # primary = "openrouter/x-ai/grok-4.1-fast";
+            fallbacks = [
+              # "grok-medium"
+              # "grok-xhigh"
+            ];
+          };
         };
       };
       list = [
         {
           id = "main";
-          default = true;
+          subagents = {
+            allowAgents = [ "*" ];
+            model = {
+              # primary = "openrouter/x-ai/grok-4.1-fast";
+            };
+          };
         }
       ];
     };
@@ -186,6 +206,10 @@ let
           provider = "anthropic";
           mode = "api_key";
         };
+        "google:default" = {
+          provider = "google";
+          mode = "api_key";
+        };
       };
     };
 
@@ -198,6 +222,12 @@ let
         fetch = {
           enabled = true;
         };
+      };
+      exec = {
+        pathPrepend = [
+          "/run/current-system/sw/bin"
+          "/home/openclaw/.nix-profile/bin"
+        ];
       };
     };
 
@@ -239,16 +269,24 @@ let
 
   configFile = pkgs.writeText "openclaw-desired.json" (builtins.toJSON openclawConfig);
 
-  toolsPath = "${pkgs.openclaw-tools}/bin";
-
   # Wrapper runs CLI as the openclaw user — keeps perms tight.
   openclawCli = pkgs.writeShellScriptBin "oc" ''
-    exec sudo -u openclaw ${pkgs.openclaw-gateway}/bin/openclaw "$@"
+    exec sudo -u openclaw \
+      XDG_RUNTIME_DIR=/run/user/1540 \
+      DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1540/bus \
+      ${pkgs.openclaw-gateway}/bin/openclaw "$@"
   '';
+
+  openclawPackages = [
+    pkgs.openclaw-gateway
+    openclawCli
+    pkgs.chromium
+  ]
+  ++ toolSets.tools;
 in
 {
   services.caddy.proxyServices = {
-    "openclaw.rocknas.local" = gatewayPort;
+    "openclaw.${settings.domain}" = gatewayPort;
   };
 
   # ==================
@@ -269,66 +307,25 @@ in
   };
 
   # ===================
-  # Packages
+  # Packages (system-wide, available to all users including admin SSH)
   # ===================
-  environment.systemPackages = [
-    pkgs.openclaw-gateway
-    pkgs.openclaw-tools
-    openclawCli
-    pkgs.chromium
-    pkgs.jq
-    pkgs.curl
-  ];
+  environment.systemPackages = openclawPackages;
 
   # ===================
   # Symlink for discoverability
   # ===================
   systemd.tmpfiles.rules = [
     "d ${openclawDataDir} 0700 openclaw openclaw -"
+    "d /tmp/openclaw 0700 openclaw openclaw -"
     "L+ ${symlinkPath} - - - - ${openclawDataDir}"
   ];
-
-  # ===================
-  # Workspace cleanup (one-time)
-  # ===================
-  systemd.services.openclaw-workspace-cleanup = {
-    description = "One-time cleanup of OpenClaw workspace (preserve onedrive and backups)";
-    before = [ "openclaw-gateway.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      User = "root";
-      Group = "root";
-    };
-    script = ''
-      set -euo pipefail
-      MARKER="${openclawDataDir}/.workspace_cleaned"
-      if [ -f "$MARKER" ]; then
-        exit 0
-      fi
-
-      WORKSPACE="${openclawDataDir}/workspace"
-      mkdir -p "$WORKSPACE"
-      chown openclaw:openclaw "$WORKSPACE"
-      find "$WORKSPACE" -mindepth 1 -maxdepth 1 \
-        ! -name "onedrive" \
-        ! -name "backup*" \
-        -exec rm -rf {} +
-
-      touch "$MARKER"
-      chown openclaw:openclaw "$MARKER"
-      chmod 0600 "$MARKER"
-    '';
-  };
 
   # ===================
   # Secrets injector (root one-shot, lifecycle tied to gateway)
   # ===================
   systemd.services.openclaw-secrets = {
     description = "OpenClaw secrets injector";
-    before = [ "openclaw-gateway.service" ];
-    requiredBy = [ "openclaw-gateway.service" ];
-    partOf = [ "openclaw-gateway.service" ];
+    wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -337,27 +334,35 @@ in
       set -euo pipefail
 
       # Write Google Workspace MCP credentials from SOPS
-      GWS_DIR="${openclawDataDir}/config/google-workspace-mcp"
+      GWS_DIR="${openclawDataDir}/credentials"
       mkdir -p "$GWS_DIR"
       GWS_ID="$(cat ${config.sops.secrets.google_workspace_client_id.path})"
       GWS_SECRET="$(cat ${config.sops.secrets.google_workspace_client_secret.path})"
       printf '{"installed":{"client_id":"%s","project_id":"clawdbot-486907","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_secret":"%s","redirect_uris":["http://localhost"]}}\n' \
-        "$GWS_ID" "$GWS_SECRET" > "$GWS_DIR/credentials.json"
-      chown openclaw:openclaw "$GWS_DIR" "$GWS_DIR/credentials.json"
+        "$GWS_ID" "$GWS_SECRET" > "$GWS_DIR/google_credentials.json"
+      chown openclaw:openclaw "$GWS_DIR" "$GWS_DIR/google_credentials.json"
       chmod 0700 "$GWS_DIR"
-      chmod 0600 "$GWS_DIR/credentials.json"
+      chmod 0600 "$GWS_DIR/google_credentials.json"
 
       # Write API keys to environment file
-      BRAVE_KEY="$(cat ${config.sops.secrets.brave_search_api_key.path})"
       printf '%s\n' \
         "OPENCLAW_GATEWAY_TOKEN=$(cat ${config.sops.secrets.openclaw_gateway_token.path})" \
         "OPENCLAW_GATEWAY_PASSWORD=$(cat ${config.sops.secrets.openclaw_gateway_password.path})" \
         "OPENROUTER_API_KEY=$(cat ${config.sops.secrets.openrouter_api_key.path})" \
         "OPENAI_API_KEY=$(cat ${config.sops.secrets.openrouter_api_key.path})" \
         "ANTHROPIC_API_KEY=$(cat ${config.sops.secrets.anthropic_api_key.path})" \
-        "BRAVE_API_KEY=$BRAVE_KEY" \
-        "BRAVE_SEARCH_API_KEY=$BRAVE_KEY" \
+        "BRAVE_API_KEY=$(cat ${config.sops.secrets.brave_search_api_key.path})" \
         "TELEGRAM_BOT_TOKEN=$(cat ${config.sops.secrets.telegram_bot_token.path})" \
+        "GOOGLE_PLACES_API_KEY=$(cat ${config.sops.secrets.google_places_api_key.path})" \
+        "GOOGLE_DRIVE_OAUTH_CREDENTIALS=${openclawDataDir}/credentials/google_credentials.json" \
+        "GOOGLE_DRIVE_TOKENS=${openclawDataDir}/credentials/google_tokens.json" \
+        "BROWSERLESS_API_TOKEN=$(cat ${config.sops.secrets.browserless_api_token.path})" \
+        "MATON_API_KEY=$(cat ${config.sops.secrets.maton_api_key.path})" \
+        "HA_TOKEN=$(cat ${config.sops.secrets.ha_token.path})" \
+        "HA_URL=$(cat ${config.sops.secrets.ha_url.path})" \
+        "GOOGLE_API_KEY=$(cat ${config.sops.secrets.google_api_key.path})" \
+        "GEMINI_API_KEY=$(cat ${config.sops.secrets.google_api_key.path})" \
+        "XAI_API_KEY=$(cat ${config.sops.secrets.xai_api_key.path})" \
         > /run/openclaw.env
       chmod 0640 /run/openclaw.env
       chown root:openclaw /run/openclaw.env
@@ -372,29 +377,71 @@ in
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
     wantedBy = [ "default.target" ];
+    path = openclawPackages ++ [ "/run/current-system/sw" ];
     environment = {
-      GOOGLE_DRIVE_OAUTH_CREDENTIALS = "${openclawDataDir}/config/google-workspace-mcp/credentials.json";
-      GOOGLE_DRIVE_TOKENS = "${openclawDataDir}/config/google-workspace-mcp/tokens.json";
-      PATH = "${toolsPath}:${pkgs.coreutils}/bin:${pkgs.findutils}/bin:/run/current-system/sw/bin";
     };
     serviceConfig = {
       Type = "simple";
       WorkingDirectory = openclawHome;
       EnvironmentFile = "/run/openclaw.env";
+      UMask = "0077";
       ExecStartPre =
         let
-          configDir = "${openclawDataDir}/config";
-          configPath = "${configDir}/openclaw.json";
+          configPath = "${openclawDataDir}/openclaw.json";
         in
         pkgs.writeShellScript "openclaw-config-merge" ''
           set -euo pipefail
-          mkdir -p "${configDir}"
+
+          # Wait for secrets injector (system service) to create env file
+          for attempt in $(seq 1 30); do
+            [ -f /run/openclaw.env ] && break
+            echo "Waiting for /run/openclaw.env ($attempt/30)..."
+            sleep 2
+          done
+          [ -f /run/openclaw.env ] || { echo "ERROR: /run/openclaw.env not found after 60s"; exit 1; }
+
+          # Tighten any dirs/files the gateway may have created with lax permissions
+          find "${openclawDataDir}" -type d -not -perm 0700 -exec chmod 0700 {} +
+          find "${openclawDataDir}" -type f -not -perm 0600 -exec chmod 0600 {} +
+
           CONF="${configPath}"
           if [ -f "$CONF" ]; then
-            ${pkgs.jq}/bin/jq -s '.[0] * .[1]' "$CONF" ${configFile} > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+            ${pkgs.jq}/bin/jq -s '
+              def merge:
+                if length == 2 and (.[0] | type) == "object" and (.[1] | type) == "object"
+                then .[0] as $a | .[1] as $b |
+                  ($a | keys) + ($b | keys) | unique | map(. as $k |
+                    if ($a | has($k)) and ($b | has($k))
+                    then { ($k): ([$a[$k], $b[$k]] | merge) }
+                    elif ($b | has($k)) then { ($k): $b[$k] }
+                    else { ($k): $a[$k] }
+                    end
+                  ) | add // {}
+                else .[-1]
+                end;
+              merge
+            ' "$CONF" ${configFile} > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
           else
             cp ${configFile} "$CONF"
           fi
+
+          # Inject gateway password and token so CLI can authenticate with the gateway
+          if [ -n "''${OPENCLAW_GATEWAY_PASSWORD:-}" ] && [ -n "''${OPENCLAW_GATEWAY_TOKEN:-}" ]; then
+            ${pkgs.jq}/bin/jq \
+              --arg pass "$OPENCLAW_GATEWAY_PASSWORD" \
+              --arg token "$OPENCLAW_GATEWAY_TOKEN" \
+              '.gateway.auth.password = $pass | .gateway.auth.token = $token | .gateway.remote.password = $pass | .gateway.remote.token = $token' \
+              "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+          fi
+
+          # Inject browserless CDP URL with runtime API token
+          if [ -n "''${BROWSERLESS_API_TOKEN:-}" ]; then
+            ${pkgs.jq}/bin/jq \
+              --arg url "https://production-ams.browserless.io/?token=''${BROWSERLESS_API_TOKEN}&stealth=true?blockAds=true" \
+              '.browser.profiles.remote.cdpUrl = $url' \
+              "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+          fi
+
           chmod 0600 "$CONF"
         '';
       ExecStart = "${pkgs.openclaw-gateway}/bin/openclaw gateway --port ${toString gatewayPort}";
@@ -406,14 +453,4 @@ in
   # Enable lingering so user service starts at boot without login
   users.users.openclaw.linger = true;
 
-  # ===================
-  # Firewall
-  # ===================
-  networking.firewall.allowedTCPPorts = [
-    gatewayPort
-    bridgePort
-  ];
-  networking.firewall.allowedUDPPorts = [
-    5353
-  ];
 }
