@@ -4,12 +4,7 @@
 {
   imports = [
     # ./services/cockpit.nix      # Web-based system management (port 9090)
-    ./services/containers.nix # Docker/Podman engine, ZFS storage, auto-pull/restart timers
-    ./services/home-assistant.nix # Home Assistant, Matter Server, OTBR (Docker)
     ./services/tailscale.nix # Tailscale VPN (native)
-    # ./services/openclaw.nix # OpenClaw (native) — enable after secrets
-    ./services/openclaw-docker.nix # OpenClaw (Docker) — enable after secrets
-    ./services/filebrowser.nix # Web-based file manager for OpenClaw data
     ./services/onedrive.nix # OneDrive sync for OpenClaw workspace
     # ./services/cloudflared.nix # Cloudflare tunnel — enable after tunnel creation
     ./services/remote-desktop.nix # XFCE + xrdp
@@ -17,6 +12,5 @@
     # ./services/transmission.nix # Torrent client with VPN killswitch
     ./services/caddy.nix # Reverse proxy with automatic HTTPS
     ./services/adguard.nix # AdGuard Home DNS (port 53, web UI 3000) — enable after deploy
-    ./services/tasks.nix # Auto-upgrade and garbage collection
   ];
 }

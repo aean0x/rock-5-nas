@@ -1,4 +1,5 @@
 # Docker engine, storage config, unified container refresh
+# Container modules live in ./containers/
 {
   config,
   lib,
@@ -12,6 +13,12 @@ let
   uniqueImages = lib.unique containerImages;
 in
 {
+  imports = [
+    ./containers/home-assistant.nix
+    ./containers/openclaw.nix
+    ./containers/filebrowser.nix
+  ];
+
   # ===================
   # Docker Engine
   # ===================

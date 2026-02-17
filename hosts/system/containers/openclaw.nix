@@ -1,11 +1,6 @@
 # OpenClaw gateway + CLI (Docker)
 # Custom image built on pinned upstream base via dockerTools.pullImage
-#
-# To update the base image:
-#   1. Get digest: docker pull ghcr.io/phioranex/openclaw-docker:latest && \
-#                  docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/phioranex/openclaw-docker:latest
-#   2. Get sha256: nix-prefetch-docker --image-name ghcr.io/phioranex/openclaw-docker --image-tag latest --os linux --arch arm64
-#   3. Update imageDigest and sha256 below, then rebuild
+# Hashes stored in image-hashes.json, updated by GitHub Actions workflow
 {
   config,
   pkgs,
@@ -18,11 +13,14 @@ let
   configDir = "/var/lib/openclaw";
   workspaceDir = "${configDir}/workspace";
 
-  # Pinned base image - update hashes to upgrade
+  # Load pinned hashes from JSON (updated by CI)
+  imageHashes = builtins.fromJSON (builtins.readFile ./image-hashes.json);
+  openclawHashes = imageHashes.openclaw;
+
   baseImage = pkgs.dockerTools.pullImage {
-    imageName = "ghcr.io/phioranex/openclaw-docker";
-    imageDigest = "sha256:384cf56cef20181a2c60784f965f4ff93cf833dee51458c700c437cfc4106a46"; # docker inspect --format '{{index .RepoDigests 0}}'
-    sha256 = "36cd52e7c30f9e8472bf1f9ae16f43c0fd39e0590fcbcf821883ed87dba7779b"; # nix-prefetch-docker output
+    imageName = openclawHashes.imageName;
+    imageDigest = openclawHashes.imageDigest;
+    sha256 = openclawHashes.sha256;
     os = "linux";
     arch = "arm64";
   };

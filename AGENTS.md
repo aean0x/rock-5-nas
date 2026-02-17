@@ -23,20 +23,20 @@ flake.nix                    # Entry point - three outputs: system, ISO, netboot
 │   │   ├── packages.nix     # System-wide packages
 │   │   ├── partitions.nix   # Filesystem mounts (label-based), ZFS dataset mounts
 │   │   ├── services.nix     # Service imports (uncomment to enable)
-│   │   └── services/        # Service modules
-│   │       ├── containers.nix     # Docker/Podman engine, ZFS storage, auto-pull/restart timers
-│   │       ├── home-assistant.nix # Home Assistant, Matter Server, OTBR (Docker)
+│   │   ├── containers.nix   # Docker engine, refresh timer, imports containers/*
+│   │   ├── containers/      # Docker container modules
+│   │   │   ├── image-hashes.json  # Pinned image digests + sha256 (updated by CI)
+│   │   │   ├── home-assistant.nix # Home Assistant, Matter Server, OTBR
+│   │   │   ├── openclaw.nix       # OpenClaw gateway + CLI (custom Nix-built image)
+│   │   │   └── filebrowser.nix    # Web-based file manager
+│   │   └── services/        # Native service modules
 │   │       ├── tailscale.nix      # Tailscale VPN (native NixOS)
 │   │       ├── adguard.nix        # AdGuard Home DNS (native NixOS)
-│   │       ├── openclaw-docker.nix # OpenClaw gateway + CLI (Docker)
-│   │       ├── openclaw.nix       # OpenClaw native (disabled)
 │   │       ├── cloudflared.nix    # Cloudflare tunnel (native NixOS)
 │   │       ├── remote-desktop.nix # XFCE + xrdp
 │   │       ├── tasks.nix          # Auto-upgrade and garbage collection
-│   │       ├── arr-suite.nix      # nixarr media stack (Sonarr, Radarr, etc.)
 │   │       ├── caddy.nix          # Reverse proxy with ACME DNS-01 via Cloudflare
-│   │       ├── cockpit.nix        # Web-based system management
-│   │       └── transmission.nix   # Torrent client with VPN killswitch
+│   │       └── onedrive.nix       # OneDrive sync
 │   └── iso/                  # Installer image (shared by ISO + netboot)
 │       ├── default.nix       # Minimal env: SSH + pubkeys + avahi + rsync (no secrets)
 │       ├── iso.nix           # ISO-specific config (isoImage settings)
@@ -106,7 +106,8 @@ Docker containers that need sops secrets use `systemd.services.docker-<name>.pre
 
 OpenClaw runs as two Docker containers (`openclaw-gateway` + `openclaw-cli`) using a custom Nix-built image layered on a pinned upstream base. State at `/var/lib/openclaw/` with subdirs volume-mounted into containers.
 
-- **Base image pinning**: `dockerTools.pullImage` with `imageDigest` + `sha256` ensures reproducible builds
+- **Hashes in JSON**: `containers/image-hashes.json` stores `imageDigest` + `sha256` per image, read via `builtins.fromJSON`
+- **Base image pinning**: `dockerTools.pullImage` with hashes from JSON ensures reproducible builds
 - **Custom layers**: `dockerTools.buildLayeredImage` adds docker-client, git, curl, jq, nodejs, python3, uv
 - **`docker-load-openclaw`** (oneshot) — loads the custom image into Docker before container starts
 - **`preStart`** — creates data dirs, deep-merges Nix-declared config into `openclaw.json` via jq, writes `/run/openclaw.env` with all API keys from SOPS, fixes docker group permissions
@@ -115,8 +116,7 @@ OpenClaw runs as two Docker containers (`openclaw-gateway` + `openclaw-cli`) usi
 1. Fetches latest arm64 digest from ghcr.io manifest
 2. Skips if digest unchanged (idempotent)
 3. Runs `nix-prefetch-docker` to get Nix sha256
-4. Updates `openclaw-docker.nix` via Python regex (robust to whitespace)
-5. Verifies Nix syntax, commits, and pushes
+4. Updates `image-hashes.json` via jq, commits, and pushes
 
 Next `system.autoUpgrade` (Sun 03:00) or manual `switch` picks up the new image. Manual trigger available via workflow_dispatch.
 

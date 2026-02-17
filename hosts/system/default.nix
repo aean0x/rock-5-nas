@@ -11,6 +11,8 @@
     ./packages.nix
     ./partitions.nix
     ./services.nix
+    ./containers.nix
+    ./tasks.nix
   ];
 
   # ===================
