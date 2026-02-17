@@ -221,8 +221,6 @@ in
       ];
       user = "1000:1000";
       cmd = [
-        "node"
-        "dist/index.js"
         "gateway"
         "--bind"
         "lan"
@@ -252,8 +250,7 @@ in
         "--network=host"
         "--group-add=${toString dockerGid}"
       ];
-      entrypoint = "node";
-      cmd = [ "dist/index.js" ];
+      cmd = [ "--help" ];
       autoStart = false;
     };
   };

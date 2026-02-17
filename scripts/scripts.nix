@@ -193,8 +193,8 @@ in
           -e HOME=/home/node \
           --env-file /run/openclaw.env \
           -v /var/lib/openclaw:/home/node/.openclaw:rw \
-          ghcr.io/openclaw/openclaw:latest \
-          node dist/index.js "$@"
+          ghcr.io/phioranex/openclaw-docker:latest \
+          "$@"
       '')
 
       (writeShellScriptBin "help" ''
