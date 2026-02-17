@@ -25,10 +25,9 @@ flake.nix                    # Entry point - three outputs: system, ISO, netboot
 │   │   ├── services.nix     # Service imports (uncomment to enable)
 │   │   ├── containers.nix   # Docker engine, refresh timer, imports containers/*
 │   │   ├── containers/      # Docker container modules
-│   │   │   ├── image-hashes.json  # Pinned image digests + sha256 (updated by CI)
 │   │   │   ├── home-assistant.nix # Home Assistant, Matter Server, OTBR
-│   │   │   ├── openclaw.nix       # OpenClaw gateway + CLI (custom Nix-built image)
-│   │   │   └── filebrowser.nix    # Web-based file manager
+│   │   │   ├── openclaw.nix       # OpenClaw gateway + CLI (runtime docker build)
+│   │   │   └── filebrowser.nix    # Web-based file manager (SOPS-managed admin password)
 │   │   └── services/        # Native service modules
 │   │       ├── tailscale.nix      # Tailscale VPN (native NixOS)
 │   │       ├── adguard.nix        # AdGuard Home DNS (native NixOS)
@@ -83,7 +82,7 @@ Philosophy: **Docker for complex/dependency-heavy stacks, native NixOS for simpl
 | Home Assistant + Matter + OTBR | Docker | `home-assistant.nix` |
 | Tailscale VPN | Native | `tailscale.nix` |
 | AdGuard Home DNS | Native | `adguard.nix` |
-| OpenClaw gateway + CLI | Docker | `openclaw-docker.nix` |
+| OpenClaw gateway + CLI | Docker | `openclaw.nix` |
 | Cloudflare tunnel | Native | `cloudflared.nix` |
 
 **containers.nix** is pure infrastructure — Docker engine, auto-prune, unified `refresh-containers` timer. It contains **no container definitions**. Container definitions live in their respective service modules.
@@ -104,21 +103,12 @@ Docker containers that need sops secrets use `systemd.services.docker-<name>.pre
 
 ### OpenClaw Docker Architecture
 
-OpenClaw runs as two Docker containers (`openclaw-gateway` + `openclaw-cli`) using a custom Nix-built image layered on a pinned upstream base. State at `/var/lib/openclaw/` with subdirs volume-mounted into containers.
+OpenClaw runs as two Docker containers (`openclaw-gateway` + `openclaw-cli`) using a custom image built at runtime on the device via `docker build`. State at `/var/lib/openclaw/` with subdirs volume-mounted into containers.
 
-- **Hashes in JSON**: `containers/image-hashes.json` stores `imageDigest` + `sha256` per image, read via `builtins.fromJSON`
-- **Base image pinning**: `dockerTools.pullImage` with hashes from JSON ensures reproducible builds
-- **Custom layers**: `dockerTools.buildLayeredImage` adds docker-client, git, curl, jq, nodejs, python3, uv
-- **`docker-load-openclaw`** (oneshot) — loads the custom image into Docker before container starts
-- **`preStart`** — creates data dirs, deep-merges Nix-declared config into `openclaw.json` via jq, writes `/run/openclaw.env` with all API keys from SOPS, fixes docker group permissions
-
-**Base image updates:** GitHub Actions workflow (`.github/workflows/update-openclaw-hash.yml`) runs weekly Sunday 2am UTC:
-1. Fetches latest arm64 digest from ghcr.io manifest
-2. Skips if digest unchanged (idempotent)
-3. Runs `nix-prefetch-docker` to get Nix sha256
-4. Updates `image-hashes.json` via jq, commits, and pushes
-
-Next `system.autoUpgrade` (Sun 03:00) or manual `switch` picks up the new image. Manual trigger available via workflow_dispatch.
+- **`openclaw-builder`** (oneshot) — builds `openclaw-custom:latest` from the upstream base image, injecting Docker CLI and uv. Runs before gateway starts via `requiredBy`
+- **`preStart`** — creates data dirs, deep-merges Nix-declared config into `openclaw.json` via jq, writes `/run/openclaw.env` with all API keys from SOPS
+- **`openclaw-refresh`** timer (Mon 04:00) — pulls latest base image, rebuilds custom image, restarts gateway
+- Base image uses its own entrypoint (`node /app/dist/index.js`), so container `cmd` passes subcommands directly (e.g. `gateway --bind lan --port 18789`)
 
 ### ZFS Pool
 
