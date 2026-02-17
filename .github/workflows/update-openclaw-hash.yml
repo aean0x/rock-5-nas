@@ -1,0 +1,168 @@
+name: Update OpenClaw Image Hash
+
+on:
+  schedule:
+    - cron: "0 2 * * 0" # Weekly Sunday 2am UTC (1hr before autoUpgrade)
+  workflow_dispatch:
+
+env:
+  MODULE_PATH: hosts/system/services/openclaw-docker.nix
+  IMAGE_NAME: ghcr.io/phioranex/openclaw-docker
+  IMAGE_TAG: latest
+
+jobs:
+  update-hash:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            extra-experimental-features = nix-command flakes
+
+      - name: Fetch latest image digest
+        id: fetch_digest
+        run: |
+          set -euo pipefail
+
+          digest=$(docker manifest inspect "$IMAGE_NAME:$IMAGE_TAG" 2>/dev/null | \
+            jq -r '.manifests[] | select(.platform.architecture=="arm64" and .platform.os=="linux").digest')
+
+          if [[ -z "$digest" || "$digest" == "null" ]]; then
+            echo "::error::Failed to fetch arm64 image digest"
+            exit 1
+          fi
+
+          echo "digest=$digest" >> $GITHUB_OUTPUT
+          echo "Fetched digest: $digest"
+
+      - name: Get current digest from module
+        id: current
+        run: |
+          set -euo pipefail
+          current=$(grep -oP 'imageDigest\s*=\s*"\K[^"]+' "$MODULE_PATH" || echo "")
+          echo "digest=$current" >> $GITHUB_OUTPUT
+          echo "Current digest: $current"
+
+      - name: Check if update needed
+        id: check
+        run: |
+          if [[ "${{ steps.current.outputs.digest }}" == "${{ steps.fetch_digest.outputs.digest }}" ]]; then
+            echo "No update needed - digests match"
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+          else
+            echo "Update needed - new image available"
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fetch Nix sha256
+        if: steps.check.outputs.needs_update == 'true'
+        id: fetch_sha256
+        run: |
+          set -euo pipefail
+
+          sha256=$(nix run nixpkgs#nix-prefetch-docker -- \
+            --image-name "$IMAGE_NAME" \
+            --image-tag "$IMAGE_TAG" \
+            --os linux \
+            --arch arm64 \
+            --quiet 2>/dev/null | tail -1)
+
+          if [[ -z "$sha256" ]]; then
+            echo "::error::Failed to fetch nix sha256"
+            exit 1
+          fi
+
+          echo "sha256=$sha256" >> $GITHUB_OUTPUT
+          echo "Fetched sha256: $sha256"
+
+      - name: Update module file
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          set -euo pipefail
+
+          NEW_DIGEST="${{ steps.fetch_digest.outputs.digest }}"
+          NEW_SHA256="${{ steps.fetch_sha256.outputs.sha256 }}"
+
+          python3 << EOF
+          import re
+          import sys
+
+          with open("$MODULE_PATH", "r") as f:
+              content = f.read()
+
+          # Update imageDigest - match flexible whitespace
+          content, n1 = re.subn(
+              r'(imageDigest\s*=\s*")[^"]*(")',
+              rf'\g<1>$NEW_DIGEST\2',
+              content
+          )
+
+          # Update sha256 - only the one near imageDigest (within pullImage block)
+          # Match the sha256 that follows imageDigest within ~5 lines
+          content, n2 = re.subn(
+              r'(imageDigest\s*=\s*"[^"]*";\s*#[^\n]*\n\s*sha256\s*=\s*")[^"]*(")',
+              rf'\g<1>$NEW_SHA256\2',
+              content
+          )
+
+          if n1 == 0:
+              print("::error::Failed to update imageDigest")
+              sys.exit(1)
+
+          if n2 == 0:
+              # Fallback: just update the first sha256 after imageDigest
+              content, n2 = re.subn(
+                  r'(sha256\s*=\s*")[^"]*(";\s*#\s*nix-prefetch-docker)',
+                  rf'\g<1>$NEW_SHA256\2',
+                  content
+              )
+
+          if n2 == 0:
+              # Last resort: update first sha256 in pullImage context
+              content, n2 = re.subn(
+                  r'(pullImage\s*\{[^}]*sha256\s*=\s*")[^"]*(")',
+                  rf'\g<1>$NEW_SHA256\2',
+                  content,
+                  count=1,
+                  flags=re.DOTALL
+              )
+
+          with open("$MODULE_PATH", "w") as f:
+              f.write(content)
+
+          print(f"Updated: imageDigest={n1}, sha256={n2}")
+          EOF
+
+          echo "=== Updated hashes ==="
+          grep -E "(imageDigest|sha256)\s*=" "$MODULE_PATH" | head -4
+
+      - name: Verify syntax
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          set -euo pipefail
+          nix-instantiate --parse "$MODULE_PATH" > /dev/null
+          echo "Nix syntax OK"
+
+      - name: Commit and push
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "$MODULE_PATH"
+          git commit -m "chore(openclaw): update base image hash
+
+          digest: ${{ steps.fetch_digest.outputs.digest }}
+          sha256: ${{ steps.fetch_sha256.outputs.sha256 }}"
+
+          git push

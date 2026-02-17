@@ -31,13 +31,22 @@ in
     with pkgs;
     containerScripts
     ++ [
-      # Apply configuration immediately
+      # Apply configuration immediately (fetch latest config)
       (writeShellScriptBin "switch" ''
         set -euo pipefail
         echo "=== Switch started at $(date) ===" | tee "${logFile}"
         echo "Rebuilding from ${flakeRef}..." | tee -a "${logFile}"
         sudo nixos-rebuild switch --flake "${flakeRef}" "$@" 2>&1 | tee -a "${logFile}"
         echo "Switch complete at $(date)" | tee -a "${logFile}"
+      '')
+
+      # Apply with updated nixpkgs/inputs (fetch latest config + update flake inputs)
+      (writeShellScriptBin "upgrade" ''
+        set -euo pipefail
+        echo "=== Upgrade started at $(date) ===" | tee "${logFile}"
+        echo "Rebuilding from ${flakeRef} with --upgrade (updates nixpkgs, etc.)..." | tee -a "${logFile}"
+        sudo nixos-rebuild switch --flake "${flakeRef}" --upgrade "$@" 2>&1 | tee -a "${logFile}"
+        echo "Upgrade complete at $(date)" | tee -a "${logFile}"
       '')
 
       # Build and apply on next reboot
@@ -56,15 +65,6 @@ in
         echo "Rebuilding from ${flakeRef}..." | tee -a "${logFile}"
         sudo nixos-rebuild test --flake "${flakeRef}" "$@" 2>&1 | tee -a "${logFile}"
         echo "Try complete at $(date) - will revert on reboot" | tee -a "${logFile}"
-      '')
-
-      # Update flake inputs only (no rebuild)
-      (writeShellScriptBin "update" ''
-        set -euo pipefail
-        echo "=== Flake update started at $(date) ===" | tee "${logFile}"
-        cd /etc/nixos 2>/dev/null || { echo "No /etc/nixos — run from a flake checkout"; exit 1; }
-        sudo nix flake update 2>&1 | tee -a "${logFile}"
-        echo "Flake inputs updated at $(date). Run 'switch' to apply." | tee -a "${logFile}"
       '')
 
       # View last build log
@@ -196,12 +196,12 @@ in
       (writeShellScriptBin "help" ''
         echo "${settings.description} -- Management Commands"
         echo ""
-        echo "On-device (runs on the Pi; may be sluggish on resource-constrained hardware):"
-        echo "  switch           Apply configuration immediately (nixos-rebuild switch)"
-        echo "  boot             Apply on next reboot (nixos-rebuild boot)"
-        echo "  try              Apply temporarily (nixos-rebuild test)"
-        echo "  update           Update flake inputs (no rebuild)"
-        echo "  rollback         Rollback to previous generation"
+        echo "Rebuild (on-device; prefer remote-* for faster builds):"
+        echo "  switch           Fetch latest config, rebuild, activate now"
+        echo "  upgrade          Same as switch + update nixpkgs/inputs (--upgrade)"
+        echo "  boot             Fetch latest config, rebuild, activate on reboot"
+        echo "  try              Fetch latest config, rebuild, activate temporarily"
+        echo "  rollback         Switch to previous generation"
         echo "  cleanup          Garbage collect and optimize store"
         echo "  build-log        View last build log"
         echo "  system-info      Show system status and disk usage"
@@ -220,9 +220,10 @@ in
         echo "Container exec (shell into container, or pass a command):"
         ${builtins.concatStringsSep "\n        " (map (name: "echo \"  ${name}\"") containerNames)}
         echo ""
-        echo "Remote build (recommended if switch/boot/try is slow or hits OOM):"
-        echo "  ./deploy remote-switch   Build on workstation, switch immediately"
-        echo "  ./deploy remote-boot     Build on workstation, activate on reboot"
+        echo "Remote build (from workstation, recommended):"
+        echo "  ./deploy remote-switch    Build on workstation, switch immediately"
+        echo "  ./deploy remote-upgrade   Update nixpkgs + build on workstation, switch"
+        echo "  ./deploy remote-boot      Build on workstation, activate on reboot"
       '')
     ];
 }

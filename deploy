@@ -19,10 +19,10 @@ usage() {
     echo "  install              Remote install (boot ISO/netboot first, then run this)"
     echo ""
     echo "On-device lifecycle (runs on the device; may be slow on low-RAM SBCs):"
-    echo "  switch               nixos-rebuild switch"
-    echo "  boot                 nixos-rebuild boot"
-    echo "  try                  nixos-rebuild test"
-    echo "  update               Update flake inputs (no rebuild)"
+    echo "  switch               Fetch latest config, rebuild, activate now"
+    echo "  upgrade              Same as switch + update nixpkgs/flake inputs"
+    echo "  boot                 Fetch latest config, rebuild, activate on reboot"
+    echo "  try                  Fetch latest config, rebuild, activate temporarily"
     echo "  rollback             Roll back to previous system generation"
     echo "  cleanup              Garbage collect and optimize store"
     echo "  build-log            View last build log"
@@ -43,12 +43,12 @@ usage() {
     echo "                       Use 'docker-ps' to see running containers"
     echo ""
     echo "Workstation remote-build (recommended for low-memory devices):"
-    echo "  remote-update        Update flake inputs (no build)"
-    echo "  remote-switch        Build on workstation and switch"
-    echo "  remote-boot          Build on workstation, activate on reboot"
-    echo "  remote-try           Build on workstation, activate temporarily"
-    echo "  remote-dry           Build on workstation, dry run"
-    echo "  remote-build         Build on workstation only"
+    echo "  remote-switch        Build on workstation, push closure, activate now"
+    echo "  remote-upgrade       Update flake inputs, build, push, activate now"
+    echo "  remote-boot          Build on workstation, push, activate on reboot"
+    echo "  remote-try           Build on workstation, push, activate temporarily"
+    echo "  remote-dry           Build on workstation, dry run (no activation)"
+    echo "  remote-build         Build on workstation only (no push)"
     exit 1
 }
 
@@ -79,7 +79,7 @@ case "$CMD" in
         ;;
 
     # On-device commands (forwarded via SSH)
-    switch|boot|try|update|rollback|cleanup|build-log|system-info|\
+    switch|upgrade|boot|try|rollback|cleanup|build-log|system-info|\
     docker-ps|docker-stats|docker-restart|logs|journal)
         check_ssh
         ssh -tt ${SSH_OPTS} "$TARGET" "$CMD" "$@"
@@ -102,17 +102,19 @@ case "$CMD" in
         exec "${REPO_ROOT}/scripts/install.sh"
         ;;
 
-    # Update flake inputs only (no build)
-    remote-update)
-        update_flake
-        ;;
-
     # Workstation build+deploy modes
-    remote-switch|remote-boot|remote-try|remote-dry|remote-build)
+    remote-switch|remote-upgrade|remote-boot|remote-try|remote-dry|remote-build)
         check_aarch64_support
         check_ssh
 
         ACTION="${CMD#remote-}"
+
+        # Update flake inputs first if upgrading
+        if [[ "$ACTION" == "upgrade" ]]; then
+            update_flake
+            ACTION="switch"
+        fi
+
         case "$ACTION" in
             switch|boot|build) ;;
             try)  ACTION="test" ;;

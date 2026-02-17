@@ -79,23 +79,22 @@ Philosophy: **Docker for complex/dependency-heavy stacks, native NixOS for simpl
 
 | Service | Type | Module |
 |---------|------|--------|
-| Docker/Podman engine | Native | `containers.nix` |
+| Docker engine | Native | `containers.nix` |
 | Home Assistant + Matter + OTBR | Docker | `home-assistant.nix` |
 | Tailscale VPN | Native | `tailscale.nix` |
 | AdGuard Home DNS | Native | `adguard.nix` |
 | OpenClaw gateway + CLI | Docker | `openclaw-docker.nix` |
 | Cloudflare tunnel | Native | `cloudflared.nix` |
 
-**containers.nix** is pure infrastructure — Docker engine, Podman, ZFS storage driver, auto-pull/restart timers. It contains **no container definitions**. Container definitions live in their respective service modules.
+**containers.nix** is pure infrastructure — Docker engine, auto-prune, unified `refresh-containers` timer. It contains **no container definitions**. Container definitions live in their respective service modules.
 
-**Auto-derived timers**: `containerNames = builtins.attrNames config.virtualisation.oci-containers.containers` auto-discovers containers from ALL imported modules. No manual registration needed when adding new service modules.
+**Auto-derived refresh**: `containerNames` and `uniqueImages` are auto-discovered from all imported modules. The single `refresh-containers` timer (Sun 02:00) pulls all images and restarts all containers. No per-service refresh timers needed.
 
 ### Docker Network Patterns
 
-- **Host network** (`--network=host`): Used by HA, Matter, OTBR for mDNS/multicast discovery
-- **Bridge network** (`--network=composio`): Used by OpenClaw stack for isolated inter-container DNS. Created by a systemd oneshot service; all containers depend on `docker-network-composio.service`.
+- **Host network** (`--network=host`): Used by HA, Matter, OTBR, OpenClaw for mDNS/multicast discovery
 
-### Env Injection Pattern (preStart)
+### Env Injection Pattern (preStart/postStart)
 
 Docker containers that need sops secrets use `systemd.services.docker-<name>.preStart` to:
 1. Create data directories (`mkdir -p /var/lib/...`)
@@ -105,10 +104,21 @@ Docker containers that need sops secrets use `systemd.services.docker-<name>.pre
 
 ### OpenClaw Docker Architecture
 
-OpenClaw runs as two Docker containers (`openclaw` gateway + `openclaw-cli`) under a dedicated `openclaw` user (UID 1540). State at `/var/lib/openclaw/` with subdirs volume-mounted into containers.
+OpenClaw runs as two Docker containers (`openclaw-gateway` + `openclaw-cli`) using a custom Nix-built image layered on a pinned upstream base. State at `/var/lib/openclaw/` with subdirs volume-mounted into containers.
 
-- **`docker-openclaw.preStart`** — creates data dirs, deep-merges Nix-declared config into `openclaw.json` via jq, writes Google Workspace credentials, writes `/run/openclaw.env` with all API keys from SOPS
-- **`openclaw-browser-setup`** (oneshot, after gateway) — installs Chromium deps, Playwright, Bun, QMD inside the container
+- **Base image pinning**: `dockerTools.pullImage` with `imageDigest` + `sha256` ensures reproducible builds
+- **Custom layers**: `dockerTools.buildLayeredImage` adds docker-client, git, curl, jq, nodejs, python3, uv
+- **`docker-load-openclaw`** (oneshot) — loads the custom image into Docker before container starts
+- **`preStart`** — creates data dirs, deep-merges Nix-declared config into `openclaw.json` via jq, writes `/run/openclaw.env` with all API keys from SOPS, fixes docker group permissions
+
+**Base image updates:** GitHub Actions workflow (`.github/workflows/update-openclaw-hash.yml`) runs weekly Sunday 2am UTC:
+1. Fetches latest arm64 digest from ghcr.io manifest
+2. Skips if digest unchanged (idempotent)
+3. Runs `nix-prefetch-docker` to get Nix sha256
+4. Updates `openclaw-docker.nix` via Python regex (robust to whitespace)
+5. Verifies Nix syntax, commits, and pushes
+
+Next `system.autoUpgrade` (Sun 03:00) or manual `switch` picks up the new image. Manual trigger available via workflow_dispatch.
 
 ### ZFS Pool
 
@@ -179,9 +189,15 @@ After netboot completes, plug device into router for WAN access before running `
 
 ### Remote Flake Workflow
 1. Edit config on dev machine, commit, push
-2. On NAS: run `switch` (fetches from `github:owner/repo#hostname`)
-3. Auto-upgrade runs weekly (Sunday 3AM) if `tasks.nix` is enabled
+2. On NAS: run `switch` (fetches latest config from `github:owner/repo#hostname`)
+3. Auto-upgrade runs weekly (Sunday 3AM) if `tasks.nix` is enabled — updates nixpkgs inputs too
 4. Or from workstation: `./deploy remote-switch` (builds locally, pushes closure)
+
+**switch vs upgrade:**
+- `switch` / `remote-switch` — fetch latest config commit, rebuild with existing flake.lock inputs
+- `upgrade` / `remote-upgrade` — same + update nixpkgs/flake inputs (`--upgrade` flag)
+
+Docker containers with static tags (`:latest`, `:stable`) are NOT re-pulled on rebuild. Per-service refresh timers (e.g., `home-assistant-refresh`) handle image updates independently.
 
 ## Modification Guidelines
 

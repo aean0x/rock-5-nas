@@ -155,34 +155,4 @@ in
     wants = [ "network-online.target" ];
   };
 
-  # ===================
-  # Refresh service (pull + restart)
-  # ===================
-  systemd.services.home-assistant-refresh = {
-    description = "Pull latest Home Assistant ecosystem images and refresh containers";
-    serviceConfig = {
-      Type = "oneshot";
-    };
-    script = ''
-      ${pkgs.docker}/bin/docker pull ${haImage} || true
-      ${pkgs.docker}/bin/docker pull ${matterImage} || true
-      ${pkgs.docker}/bin/docker pull ${otbrImage} || true
-      ${pkgs.docker}/bin/docker image prune -f
-      ${pkgs.systemd}/bin/systemctl try-restart docker-home-assistant.service
-      ${pkgs.systemd}/bin/systemctl try-restart docker-matter-server.service
-      ${pkgs.systemd}/bin/systemctl try-restart docker-otbr.service
-    '';
-    after = [ "docker.service" ];
-    requires = [ "docker.service" ];
-  };
-
-  systemd.timers.home-assistant-refresh = {
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnCalendar = "Mon 05:00:00";
-      Persistent = true;
-      RandomizedDelaySec = "3600";
-    };
-  };
-
 }

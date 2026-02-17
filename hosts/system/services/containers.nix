@@ -1,4 +1,4 @@
-# Docker/Podman engine, ZFS storage, auto-pull/restart timers
+# Docker engine, storage config, unified container refresh
 {
   config,
   lib,
@@ -8,6 +8,8 @@
 }:
 let
   containerNames = builtins.attrNames config.virtualisation.oci-containers.containers;
+  containerImages = lib.mapAttrsToList (_: c: c.image) config.virtualisation.oci-containers.containers;
+  uniqueImages = lib.unique containerImages;
 in
 {
   # ===================
@@ -16,65 +18,46 @@ in
   virtualisation.docker = {
     enable = true;
     enableOnBoot = true;
-    autoPrune.enable = true;
-  };
-
-  # ===================
-  # Podman (daemonless, for ZFS-backed containers)
-  # ===================
-  virtualisation.podman = {
-    enable = true;
-    dockerCompat = false; # Keep false when real Docker daemon is enabled
-    defaultNetwork.settings.dns_enabled = true;
-    autoPrune.enable = true;
-  };
-
-  virtualisation.containers.storage.settings = {
-    storage = {
-      driver = "zfs";
-      graphroot = "/var/lib/containers/storage";
+    autoPrune = {
+      enable = true;
+      dates = "weekly";
+      flags = [ "--filter=until=168h" ];
     };
   };
 
   virtualisation.oci-containers.backend = "docker";
 
   # ===================
-  # Auto-pull container images (weekly)
+  # Unified container refresh (pull images + restart services)
   # ===================
-  systemd.timers.pull-containers = {
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnCalendar = "Sun *-*-* 02:00:00";
-      Persistent = true;
-    };
-  };
-
-  systemd.services.pull-containers = {
-    script = builtins.concatStringsSep "\n" (
-      lib.mapAttrsToList (
-        name: container: "${config.virtualisation.docker.package}/bin/docker pull ${container.image}"
-      ) config.virtualisation.oci-containers.containers
-    );
+  systemd.services.refresh-containers = {
+    description = "Pull latest container images and restart services";
     serviceConfig.Type = "oneshot";
-  };
-
-  # ===================
-  # Periodic restart timer (weekly)
-  # ===================
-  systemd.timers.restart-services = {
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnCalendar = "Sun *-*-* 03:30:00";
-      Persistent = true;
-    };
-  };
-
-  systemd.services.restart-services = {
     script = ''
-      ${config.virtualisation.docker.package}/bin/docker restart \
-        ${builtins.concatStringsSep " " containerNames} || true
+      set -euo pipefail
+      echo "Pulling container images..."
+      ${lib.concatMapStringsSep "\n" (img: ''
+        echo "  ${img}"
+        ${config.virtualisation.docker.package}/bin/docker pull ${img} || true
+      '') uniqueImages}
+
+      echo "Restarting containers..."
+      ${config.virtualisation.docker.package}/bin/docker restart ${lib.concatStringsSep " " containerNames} || true
+
+      echo "Container refresh complete."
     '';
-    serviceConfig.Type = "oneshot";
+    after = [ "docker.service" ];
+    requires = [ "docker.service" ];
+  };
+
+  systemd.timers.refresh-containers = {
+    description = "Weekly container image refresh";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "Sun 02:00:00";
+      Persistent = true;
+      RandomizedDelaySec = "1h";
+    };
   };
 
   # ===================
@@ -82,12 +65,8 @@ in
   # ===================
   environment.systemPackages = with pkgs; [
     docker-compose
-    podman-compose
     dive
   ];
 
-  users.users.${settings.adminUser}.extraGroups = [
-    "docker"
-    "podman"
-  ];
+  users.users.${settings.adminUser}.extraGroups = [ "docker" ];
 }
