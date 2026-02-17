@@ -3,6 +3,6 @@
     "imageName": "ghcr.io/phioranex/openclaw-docker",
     "imageTag": "latest",
     "imageDigest": "sha256:384cf56cef20181a2c60784f965f4ff93cf833dee51458c700c437cfc4106a46",
-    "sha256": "36cd52e7c30f9e8472bf1f9ae16f43c0fd39e0590fcbcf821883ed87dba7779b"
+    "sha256": "66d3ed87a181e81767bd7aeb610a84ca6421ffdf1f3d8c87c3eb77488e41aa6d"
   }
 }

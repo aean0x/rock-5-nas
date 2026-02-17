@@ -17,8 +17,10 @@ let
   imageHashes = builtins.fromJSON (builtins.readFile ./image-hashes.json);
   openclawHashes = imageHashes.openclaw;
 
-  # Pull with build-platform skopeo to avoid qemu emulation bottleneck
-  baseImage = pkgs.pkgsBuildBuild.dockerTools.pullImage {
+  # Pull natively on x86_64 to avoid qemu emulation bottleneck during cross-builds.
+  # Safe because pullImage is a fixed-output derivation (output is just a tar).
+  x86Pkgs = import pkgs.path { system = "x86_64-linux"; };
+  baseImage = x86Pkgs.dockerTools.pullImage {
     imageName = openclawHashes.imageName;
     imageDigest = openclawHashes.imageDigest;
     sha256 = openclawHashes.sha256;
