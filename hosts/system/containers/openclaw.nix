@@ -191,6 +191,7 @@ in
           ln -sf /usr/local/bin/docker /bin/docker && \
           rm -rf /var/lib/apt/lists/*
       RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh 2>/dev/null
+      RUN chown -R 1000:1000 /home/linuxbrew/.linuxbrew
       USER 1000
       EOF
     '';
