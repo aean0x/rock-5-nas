@@ -12,9 +12,9 @@ Default policy: subs = explicit allow only (default-deny). Main = full minus ext
 **Main (orchestrator)**  
 - Full local (group:fs read/write, group:sessions, group:memory, group:automation, group:runtime if needed).  
 - Deny: group:web/group:email/group:messaging/group:ui.  
-- Research/web: researcher (ro workspace).  
+- Research/web: researcher (rw workspace).  
 - Email/send/write: communicator (rw workspace, no web/exec).  
-- HA: controller (ro).  
+- HA: controller (w).  
 - /config only after human review. Never delegate config.  
 - May edit sub-agent directives in `sub-agents/<agent>/AGENTS.md` to refine their role rules.
 - Review every sub Result. Reject off-mission. Long tasks → spawn sub.  

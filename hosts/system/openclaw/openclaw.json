@@ -1,7 +1,7 @@
 {
   "meta": {
-    "lastTouchedVersion": "2026.2.16",
-    "lastTouchedAt": "2026-02-18T17:46:21.047Z"
+    "lastTouchedVersion": "2026.2.21",
+    "lastTouchedAt": "2026-02-25T07:13:37.735Z"
   },
   "wizard": {
     "lastRunAt": "2026-02-18T17:46:21.007Z",
@@ -11,6 +11,22 @@
   },
   "logging": {
     "redactSensitive": "tools"
+  },
+  "browser": {
+    "enabled": true,
+    "headless": true,
+    "noSandbox": false,
+    "defaultProfile": "remote",
+    "profiles": {
+      "remote": {
+        "cdpUrl": "https://production-ams.browserless.io/?token=${BROWSERLESS_API_TOKEN}&stealth=true&blockAds=true",
+        "color": "#00AA00"
+      },
+      "local": {
+        "cdpPort": 18800,
+        "color": "#FF0000"
+      }
+    }
   },
   "auth": {
     "profiles": {
@@ -47,10 +63,21 @@
         "fallbacks": ["xai/grok-4-1-fast-non-reasoning"]
       },
       "models": {
-        "xai/grok-4-1-fast-reasoning": { "alias": "grok-reasoning" },
-        "xai/grok-4-1-fast-non-reasoning": { "alias": "grok-non-reasoning" }
+        "xai/grok-4-1-fast-reasoning": {
+          "alias": "grok-reasoning"
+        },
+        "xai/grok-4-1-fast-non-reasoning": {
+          "alias": "grok-non-reasoning"
+        }
       },
       "workspace": "/home/node/.openclaw/workspace",
+      "memorySearch": {
+        "provider": "gemini",
+        "remote": {
+          "apiKey": "${GEMINI_API_KEY}"
+        },
+        "model": "gemini-embedding-001"
+      },
       "contextPruning": {
         "mode": "cache-ttl",
         "ttl": "12h",
@@ -76,11 +103,10 @@
         "scope": "agent",
         "docker": {
           "image": "openclaw-sandbox:bookworm-slim",
-          "network": "bridge",
           "readOnlyRoot": true,
+          "network": "bridge",
           "user": "1000:1000",
           "capDrop": ["ALL"],
-          "cpus": 1,
           "env": {
             "HOME": "/home/node",
             "OPENCLAW_HOME": "/home/node",
@@ -88,34 +114,37 @@
             "OPENCLAW_CONFIG_PATH": "/home/node/.openclaw/openclaw.json",
             "OPENCLAW_GATEWAY_TOKEN": "${OPENCLAW_GATEWAY_TOKEN}",
             "OPENCLAW_GATEWAY_URL": "ws://172.17.0.1:18789"
-          }
+          },
+          "cpus": 1
         },
         "browser": {
           "enabled": true
-        }
-      },
-      "memorySearch": {
-        "provider": "gemini",
-        "model": "gemini-embedding-001",
-        "remote": {
-          "apiKey": "${GEMINI_API_KEY}"
         }
       }
     },
     "list": [
       {
         "id": "main",
-        "sandbox": { "mode": "off" },
+        "subagents": {
+          "allowAgents": ["*"]
+        },
+        "sandbox": {
+          "mode": "off"
+        },
         "tools": {
           "profile": "full",
           "deny": ["group:web", "group:email", "group:messaging", "group:ui"]
-        },
-        "subagents": { "allowAgents": ["*"] }
+        }
       },
       {
         "id": "researcher",
         "workspace": "/home/node/.openclaw/workspace/sub-agents/researcher",
-        "memorySearch": { "enabled": false },
+        "memorySearch": {
+          "enabled": false
+        },
+        "identity": {
+          "name": "Researcher"
+        },
         "sandbox": {
           "workspaceAccess": "rw",
           "docker": {
@@ -125,7 +154,11 @@
               "GOOGLE_PLACES_API_KEY": "${GOOGLE_PLACES_API_KEY}",
               "OPENCLAW_GATEWAY_TOKEN": "${OPENCLAW_GATEWAY_TOKEN}",
               "OPENCLAW_GATEWAY_URL": "ws://172.17.0.1:18789"
-            }
+            },
+            "extra_hosts": ["host.docker.internal:host-gateway"]
+          },
+          "tools": {
+            "allow": ["group:web", "read", "group:memory", "session_status"]
           }
         },
         "tools": {
@@ -136,12 +169,14 @@
             "sessions_list",
             "session_status"
           ]
-        },
-        "identity": { "name": "Researcher" }
+        }
       },
       {
         "id": "communicator",
         "workspace": "/home/node/.openclaw/workspace/sub-agents/communicator",
+        "identity": {
+          "name": "Communicator"
+        },
         "sandbox": {
           "workspaceAccess": "rw",
           "docker": {
@@ -163,12 +198,14 @@
             "sessions_list",
             "session_status"
           ]
-        },
-        "identity": { "name": "Communicator" }
+        }
       },
       {
         "id": "controller",
         "workspace": "/home/node/.openclaw/workspace/sub-agents/controller",
+        "identity": {
+          "name": "Controller"
+        },
         "sandbox": {
           "workspaceAccess": "rw",
           "docker": {
@@ -189,27 +226,34 @@
             "sessions_list",
             "session_status"
           ]
-        },
-        "identity": { "name": "Controller" }
+        }
       }
     ]
   },
   "tools": {
+    "web": {
+      "search": {
+        "enabled": true,
+        "maxResults": 5
+      },
+      "fetch": {
+        "enabled": true,
+        "maxChars": 50000
+      }
+    },
+    "elevated": {
+      "enabled": true,
+      "allowFrom": {
+        "main": ["*"],
+        "telegram": ["${TELEGRAM_ADMIN_ID}"]
+      }
+    },
+    "exec": {
+      "security": "full",
+      "ask": "off"
+    },
     "sandbox": {
       "tools": {
-        "allow": [
-          "exec",
-          "process",
-          "read",
-          "write",
-          "edit",
-          "apply_patch",
-          "sessions_list",
-          "sessions_history",
-          "sessions_send",
-          "sessions_spawn",
-          "session_status"
-        ],
         "deny": [
           "browser",
           "canvas",
@@ -225,24 +269,6 @@
           "signal",
           "imessage"
         ]
-      }
-    },
-    "elevated": {
-      "enabled": true,
-      "allowFrom": {
-        "main": ["*"],
-        "telegram": ["${TELEGRAM_ADMIN_ID}"]
-      }
-    },
-    "exec": { "ask": "off", "security": "full" },
-    "web": {
-      "search": {
-        "enabled": true,
-        "maxResults": 5
-      },
-      "fetch": {
-        "enabled": true,
-        "maxChars": 50000
       }
     }
   },
@@ -263,7 +289,8 @@
     "text": true,
     "bash": false,
     "config": true,
-    "restart": true
+    "restart": true,
+    "ownerDisplay": "raw"
   },
   "hooks": {
     "internal": {
@@ -314,22 +341,6 @@
     "entries": {
       "telegram": {
         "enabled": true
-      }
-    }
-  },
-  "browser": {
-    "enabled": true,
-    "headless": true,
-    "noSandbox": false,
-    "defaultProfile": "remote",
-    "profiles": {
-      "remote": {
-        "cdpUrl": "https://production-ams.browserless.io/?token=${BROWSERLESS_API_TOKEN}&stealth=true&blockAds=true",
-        "color": "#00AA00"
-      },
-      "local": {
-        "cdpPort": 18800,
-        "color": "#FF0000"
       }
     }
   }
