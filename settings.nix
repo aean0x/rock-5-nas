@@ -36,9 +36,12 @@
     dnsSecondary = "8.8.8.8";
   };
 
-  # Optional WiFi
+  # Optional WiFi (client mode — mutually exclusive with router mode)
   enableWifi = false;
   wifiSsid = "SKYNET";
+
+  # Router mode — configure in services/router.nix
+  enableRouter = false;
 
   # Thread radio (uncomment and set if you have a Thread USB adapter)
   threadRadioPath = "/dev/serial/by-id/usb-Nabu_Casa_ZBT-2_DCB4D910EF08-if00";

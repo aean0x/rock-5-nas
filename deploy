@@ -46,7 +46,8 @@ usage() {
     echo "  remote-switch        Build on workstation, push closure, activate now"
     echo "  remote-upgrade       Update flake inputs, build, push, activate now"
     echo "  remote-boot          Build on workstation, push, activate on reboot"
-    echo "  remote-try           Build on workstation, push, activate temporarily"
+    echo "  remote-test          Build on workstation, push, activate WITHOUT setting boot default"
+    echo "                       Reboot recovers previous config if something breaks"
     echo "  remote-dry           Build on workstation, dry run (no activation)"
     echo "  remote-build         Build on workstation only (no push)"
     exit 1
@@ -103,7 +104,7 @@ case "$CMD" in
         ;;
 
     # Workstation build+deploy modes
-    remote-switch|remote-upgrade|remote-boot|remote-try|remote-dry|remote-build)
+    remote-switch|remote-upgrade|remote-boot|remote-test|remote-dry|remote-build)
         check_aarch64_support
         check_ssh
 
@@ -119,9 +120,9 @@ case "$CMD" in
 
         case "$ACTION" in
             switch|boot|build) ;;
-            try)  ACTION="test" ;;
-            dry)  ACTION="dry-activate" ;;
-            *)    usage ;;
+            test)  ;; # activate without setting boot default
+            dry)   ACTION="dry-activate" ;;
+            *)     usage ;;
         esac
 
         build_system

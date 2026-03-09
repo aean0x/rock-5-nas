@@ -125,7 +125,12 @@ deploy_system() {
     nix copy --to "ssh-ng://${TARGET}?remote-program=sudo%20nix-daemon" --no-check-sigs "$result_path"
 
     info "Activating system (${action})..."
-    ssh -t ${SSH_OPTS} "$TARGET" "sudo nix-env -p /nix/var/nix/profiles/system --set \"$result_path\"; sudo \"$result_path/bin/switch-to-configuration\" \"$action\""
+    if [[ "$action" == "test" ]]; then
+        # Activate without setting boot default — reboot recovers previous config
+        ssh -t ${SSH_OPTS} "$TARGET" "sudo \"$result_path/bin/switch-to-configuration\" test"
+    else
+        ssh -t ${SSH_OPTS} "$TARGET" "sudo nix-env -p /nix/var/nix/profiles/system --set \"$result_path\"; sudo \"$result_path/bin/switch-to-configuration\" \"$action\""
+    fi
 
     info "Deployment complete!"
 }

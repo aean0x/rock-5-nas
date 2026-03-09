@@ -8,8 +8,32 @@
 }:
 let
   wifiEnabled = settings.enableWifi or false;
+  secrets = config.sops.secrets;
 in
 {
+  # Wire OpenClaw env secrets from sops paths.
+  # Key = env var name, value = decrypted secret file path.
+  # Add new OpenClaw secrets here — the module generates the env file automatically.
+  services.openclaw.envSecrets = {
+    OPENCLAW_GATEWAY_TOKEN = secrets.openclaw_gateway_token.path;
+    OPENCLAW_GATEWAY_PASSWORD = secrets.openclaw_gateway_password.path;
+    XAI_API_KEY = secrets.xai_api_key.path;
+    OPENROUTER_API_KEY = secrets.openrouter_api_key.path;
+    OPENAI_API_KEY = secrets.openrouter_api_key.path;
+    ANTHROPIC_API_KEY = secrets.anthropic_api_key.path;
+    BRAVE_API_KEY = secrets.brave_search_api_key.path;
+    TELEGRAM_BOT_TOKEN = secrets.telegram_bot_token.path;
+    GOOGLE_PLACES_API_KEY = secrets.google_places_api_key.path;
+    BROWSERLESS_API_TOKEN = secrets.browserless_api_token.path;
+    MATON_API_KEY = secrets.maton_api_key.path;
+    HA_TOKEN = secrets.ha_token.path;
+    HA_URL = secrets.ha_url.path;
+    TELEGRAM_ADMIN_ID = secrets.telegram_admin_id.path;
+    GOOGLE_API_KEY = secrets.google_api_key.path;
+    GEMINI_API_KEY = secrets.google_api_key.path;
+    CLAWHUB_TOKEN = secrets.clawhub_token.path;
+  };
+
   sops = {
     defaultSopsFile = ./secrets.yaml;
     age.keyFile = "/var/lib/sops-nix/key.txt";
@@ -41,7 +65,11 @@ in
         cloudflare_dns_api_token = { };
         xai_api_key = { };
         filebrowser_password = { };
+        clawhub_token = { };
       }
+      (lib.mkIf (settings.enableRouter or false) {
+        wifi_ap_password = { };
+      })
       (lib.mkIf (config.users.users ? cloudflared) {
         cloudflared_tunnel_credentials = {
           owner = "cloudflared";

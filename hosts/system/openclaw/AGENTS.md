@@ -6,17 +6,14 @@ Module-specific context for the `hosts/system/openclaw/` subtree. Read alongside
 
 ```
 openclaw/
-├── default.nix        # Gateway + CLI containers, builder, preStart, refresh timer
-├── openclaw.json      # Committed gateway config (merged into runtime on each start)
-├── onedrive.nix       # Bidirectional rclone sync (15m timer, UID 1000, group "users")
-└── workspace/         # Nix-managed dotfiles (source)
-    ├── AGENTS.md      # Main agent role rules
-    ├── SOUL.md        # Personality directives (shared)
-    ├── STYLE.md       # Message formatting rules (shared)
-    └── sub-agents/    # Sub-agent specific config
-        ├── researcher/AGENTS.md   # Restricted role rules
-        ├── communicator/AGENTS.md # Restricted role rules
-        └── controller/AGENTS.md   # Restricted role rules
+├── default.nix        # Module entry point (imports components)
+├── agents.nix         # Agent definitions & JSON config logic
+├── config.nix         # Gateway config generation
+├── workspace.nix      # Workspace doc templates (protected vs persistent sections)
+├── image.nix          # Custom Docker image builder service
+├── deployment.nix     # Setup service (deploy) & refresh timer
+├── onedrive.nix       # Bidirectional rclone sync
+└── workspace/         # Static assets (skills/, USER.md)
 ```
 
 ## Path Mapping
@@ -33,15 +30,21 @@ Gateway env vars (`OPENCLAW_HOME`, `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`)
 
 ## Container Architecture
 
-- **openclaw-builder** (oneshot) — builds `openclaw-custom:latest` from upstream base image, adds Docker CLI + uv. Runs before gateway via `requiredBy`.
+- **openclaw-builder** (oneshot, `image.nix`) — builds `openclaw-custom:latest` from upstream base image, adds Docker CLI + uv. Runs before gateway.
 - **openclaw-gateway** — main process, user `1000:1000`, `--network=host`, docker group for socket access.
 - **openclaw-cli** — ephemeral `docker run` via the `oc` wrapper in `scripts.nix`. Same image, same user, same mounts.
 
 All containers run as UID 1000 (maps to `node` inside, `user` on host). No root anywhere at runtime.
 
-## Config Merge Strategy
+## Workspace & Config Deployment
 
-`preStart` runs `jq -s '.[0] * .[1]'` — shallow merge of runtime config with committed `openclaw.json`. Nix-declared values always win for top-level keys, but nested runtime additions (e.g., new agents added via UI) are preserved.
+Managed via `deployment.nix`. On rebuild/restart:
+1. **Config**: Generated `openclaw.json` (from `config.nix` + `agents.nix`) overwrites `/var/lib/openclaw/openclaw.json`.
+2. **Workspace**:
+   - `USER.md` and `skills/` are copied from `workspace/`.
+   - `AGENTS.md`, `SOUL.md`, `STYLE.md` are generated from `workspace.nix` templates.
+   - **Persistence**: These 3 core docs have a "Protected" top section (repo-managed) and a "Persistent" bottom section (agent-managed). The setup script preserves the bottom section if it exists.
+   - **Sub-agents**: Workspaces generated fresh from `agents.nix` definitions. `skills/` is bind-mounted read-only.
 
 ## Agent Sandbox Defaults & Key Splitting
 
@@ -66,13 +69,12 @@ This is the two-key vault principle + default deny:
 
 ## Editing openclaw.json
 
-The JSON config is committed and merged on every gateway start. When editing:
-- Top-level keys from the committed file always overwrite runtime values
-- Nested objects are shallow-merged (runtime additions preserved)
-- Secrets use `${ENV_VAR}` syntax — the gateway interpolates from its environment
-- Per-agent `docker.env` entries use the same `${VAR}` syntax, resolved from the gateway process env
+The JSON config is generated from Nix. To edit:
+1. Modify `config.nix` (gateway settings) or `agents.nix` (agent definitions).
+2. Rebuild and deploy (`deploy remote-switch`).
+3. The file at `/var/lib/openclaw/openclaw.json` is overwritten with the new state.
 
-After editing, rebuild and deploy — the preStart merge handles the rest. No need to manually restart or edit on the device.
+Secrets use `${ENV_VAR}` syntax — resolved by the gateway process from environment variables injected via `sops-nix` -> `/run/openclaw.env`.
 
 ## OneDrive Sync
 

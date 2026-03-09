@@ -8,5 +8,6 @@
     wget
     curl
     sops
+    iw
   ];
 }

@@ -5,11 +5,12 @@
   imports = [
     # ./services/cockpit.nix      # Web-based system management (port 9090)
     ./services/tailscale.nix # Tailscale VPN (native)
-    # ./services/cloudflared.nix # Cloudflare tunnel — enable after tunnel creation
+    ./services/cloudflare.nix # Cloudflare DDNS + tunnel
     ./services/remote-desktop.nix # XFCE + xrdp
     # ./services/arr-suite.nix    # Media stack (Sonarr, Radarr, Jellyfin, etc.)
     # ./services/transmission.nix # Torrent client with VPN killswitch
     ./services/caddy.nix # Reverse proxy with automatic HTTPS
     ./services/adguard.nix # AdGuard Home DNS (port 53, web UI 3000) — enable after deploy
+    ./services/router.nix # Router: NAT + WiFi AP + DHCP — enable in settings.nix
   ];
 }

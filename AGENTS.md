@@ -30,13 +30,13 @@ flake.nix                    # Entry point - three outputs: system, ISO, netboot
 │   │   │   └── filebrowser.nix    # Web-based file manager (SOPS-managed admin password)
 │   │   ├── openclaw/         # OpenClaw gateway, workspace dotfiles, related services
 │   │   │   ├── default.nix        # Docker containers, builder, setup, refresh timer
-│   │   │   ├── openclaw.json      # Gateway config (committed, secrets injected at deploy)
+│   │   │   ├── agents.nix         # Agent definitions (tools, secrets, docs, enable flags)
+│   │   │   ├── config.nix         # Gateway config as Nix attrset (generates openclaw.json)
 │   │   │   ├── onedrive.nix       # OneDrive bidirectional sync into workspace
-│   │   │   └── workspace/         # Nix-managed dotfiles deployed to /var/lib/openclaw/workspace/
-│   │   │       ├── AGENTS.md      # Agent role descriptions and guidelines
+│   │   │   └── workspace/         # Static shared dotfiles deployed to /var/lib/openclaw/workspace/
+│   │   │       ├── AGENTS.md      # Ops content (session, memory, safety, heartbeats) — roles appended from agents.nix
 │   │   │       ├── SOUL.md        # Personality directives
-│   │   │       ├── STYLE.md       # Message formatting and output rules
-│   │   │       └── sub-agents/    # Per-agent AGENTS.md and workspace dirs
+│   │   │       └── STYLE.md       # Message formatting and output rules
 │   │   └── services/        # Native service modules
 │   │       ├── tailscale.nix      # Tailscale VPN (native NixOS)
 │   │       ├── adguard.nix        # AdGuard Home DNS (native NixOS)
@@ -127,10 +127,10 @@ OpenClaw lives in `hosts/system/openclaw/` as a self-contained module. Two Docke
 - **`openclaw-setup`** (oneshot) — deploys workspace dotfiles from Nix store, creates sub-agent directories with relative symlinks to shared files (SOUL.md, STYLE.md, USER.md), copies `openclaw.json` with secret substitution, writes `/run/openclaw.env` with all API keys.
 - **Gateway container** — `--network=host`, `--group-add=docker` for docker.sock access. Spawns sandbox containers for sub-agents. Restart policy: always (recovers from SIGUSR1 self-restart).
 - **CLI container** (`oc` command) — ephemeral `docker run --rm`, same image and mounts, for ad-hoc CLI commands.
-- **Config as JSON**: `openclaw.json` is committed with `${VAR}` placeholders for secrets. `openclaw-setup` substitutes them via sed before deploying to `/var/lib/openclaw/openclaw.json`.
-- **Workspace dotfiles**: `workspace/` contents are Nix-managed and deployed on every rebuild. Sub-agent directories get relative symlinks (`../../SOUL.md`) to shared workspace files for container path portability.
+- **Config as Nix**: `config.nix` defines the full gateway config as a Nix attrset, generated to JSON via `builtins.toJSON`. Imports agent definitions from `agents.nix`. Nix-evaluable values (domain, port) are inlined at build time. Secret placeholders (`${VAR}`) remain as literal strings — OpenClaw resolves them from process env at runtime. `openclaw-setup` copies the generated JSON to `/var/lib/openclaw/openclaw.json` (mutable — OpenClaw can write runtime changes; overwritten on rebuild).
+- **Agent definitions**: `agents.nix` is the single source of truth for all agents. Each agent definition carries: tools config (allow/deny), sandbox secrets, role description, AGENTS.md content, TOOLS.md content, and an `enable` flag. Disabled agents are excluded from both JSON config and workspace generation. The main AGENTS.md delegation section is generated dynamically from enabled agents.
+- **Workspace generation**: `workspace/` contains static shared files (SOUL.md, STYLE.md, AGENTS.md ops content). Setup assembles the final main AGENTS.md by concatenating static ops content + generated role profiles from `agents.nix`. Sub-agent directories are created dynamically with generated AGENTS.md, TOOLS.md, and relative symlinks to shared files.
 - **Sandbox architecture** — gateway spawns sandbox containers via mounted `docker.sock`. Default sandbox config: bridge network, readOnlyRoot, capDrop ALL, 1 CPU. Per-agent env overrides inject only the API keys each role needs (two-key vault principle). Browser enabled with `allowHostControl` for host Browserless CDP proxy.
-- **Agent roles** — `main` (orchestrator, sandbox=off, deny group:web/email/messaging), `researcher` (rw workspace, web/browser/read, gets BRAVE/GOOGLE_PLACES keys), `communicator` (rw workspace, messaging/email/read/write, gets MATON/TELEGRAM keys), `controller` (rw workspace, HA/mcp/read, gets HA keys). Full role details in `openclaw/workspace/AGENTS.md`.
 - **OneDrive sync** — `onedrive.nix` (imported by openclaw module) runs bidirectional rclone copy on a 15m timer as UID 1000. Syncs `Shared` and `Documents` into `workspace/onedrive/`.
 - **`openclaw-refresh`** timer (Mon 04:00) — pulls latest base image, rebuilds custom image, restarts gateway.
 

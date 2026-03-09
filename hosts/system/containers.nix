@@ -9,13 +9,16 @@
 }:
 let
   containerNames = builtins.attrNames config.virtualisation.oci-containers.containers;
-  containerImages = lib.mapAttrsToList (_: c: c.image) config.virtualisation.oci-containers.containers;
+  containerImages = lib.mapAttrsToList (
+    _: c: c.image
+  ) config.virtualisation.oci-containers.containers;
   uniqueImages = lib.unique containerImages;
 in
 {
   imports = [
     ./containers/home-assistant.nix
     ./containers/filebrowser.nix
+    ./containers/teamspeak.nix
     ./openclaw
   ];
 
