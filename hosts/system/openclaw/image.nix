@@ -50,6 +50,11 @@ in
       # Your openclaw wrapper
       RUN printf '#!/bin/sh\nexec node /app/dist/index.js "$@"\n' > /usr/local/bin/openclaw && \
           chmod +x /usr/local/bin/openclaw
+      # Pre-install ClawSec skill to staging dir (copied to workspace/skills by openclaw-setup)
+      # clawhub creates: /opt/openclaw-skills/skills/<name>/ and /opt/openclaw-skills/.clawhub/
+      RUN mkdir -p /opt/openclaw-skills && \
+          cd /opt/openclaw-skills && \
+          npx clawhub@latest install clawsec-suite
       # Optional: global git safe if cloning inside containers later
       RUN git config --global --add safe.directory '*'
       USER 1000:1000

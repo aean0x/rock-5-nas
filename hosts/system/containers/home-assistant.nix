@@ -1,6 +1,5 @@
 # Home Assistant ecosystem: HA Core, Matter Server, OTBR (Docker)
 {
-  pkgs,
   settings,
   ...
 }:

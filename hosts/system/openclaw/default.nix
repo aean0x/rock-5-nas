@@ -9,7 +9,6 @@
   ...
 }:
 let
-  cfg = config.services.openclaw;
   openclawConfig = import ./config.nix { inherit pkgs lib settings; };
   openclawPort = openclawConfig.port;
   customImage = "openclaw-custom:latest";

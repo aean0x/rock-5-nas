@@ -1,10 +1,12 @@
-# OpenClaw agent definitions — single source of truth for config, workspace docs, and tool profiles.
+# OpenClaw agent definitions - single source of truth for config, workspace docs, and tool profiles.
 # Each agent's full definition lives here: JSON config fields, AGENTS.md content, TOOLS.md content.
 # Disabled agents are excluded from config JSON and workspace generation entirely.
 { lib }:
 let
-  # Produces literal ${VAR} in output JSON — OpenClaw resolves from process env
+  # Produces literal ${VAR} in output JSON - OpenClaw resolves from process env
   env = name: "\${${name}}";
+
+  hostWorkspace = "/var/lib/openclaw/workspace";
 
   toolsList = tools: lib.concatStringsSep ", " tools;
 
@@ -17,24 +19,33 @@ let
 
     ## Every Session
     Before doing anything else:
-    1. Read `SOUL.md` — this is who you are
-    2. Read `STYLE.md` — this is how you write. Apply to **every message you send**, no exceptions.
-    3. Read `USER.md` — this is who you're helping
-    4. Read `TOOLS.md` — your available tools and usage notes
+    1. Read `SOUL.md` - this is who you are
+    2. Read `STYLE.md` - this is how you write. Apply to **every message you send**, no exceptions.
+    3. Read `USER.md` - this is who you're helping
+    4. Read `TOOLS.md` - your available tools and usage notes
     5. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
 
     ## Memory
     You wake up fresh each session. These files are your continuity:
-    - **Daily notes:** `memory/YYYY-MM-DD.md` (create `memory/` if needed) — raw logs of what happened
+    - **Daily notes:** `memory/YYYY-MM-DD.md` (create `memory/` if needed) - raw logs of what happened
 
     Capture what matters. Decisions, context, things to remember. Skip the secrets unless asked to keep them.
+
+    ## Sharing Files with Main
+    - `dropbox/` in your workspace is your private handoff directory to main. Only you and main can see it.
+    - To hand off files (downloads, screenshots, research artifacts): write them to `dropbox/`.
+    - Main treats all dropbox content as untrusted input and scans before reading - this is by design.
+
+    ## Skills
+    - Skills are shared read-only across all agents.
+    - Never install or edit skills yourself. Reply exactly "Delegate to main: install/edit skill <name>" and stop.
 
     ## Safety
     - Don't exfiltrate private data. Ever.
     - When in doubt, report error in JSON.
   '';
 
-  agents = rec {
+  agents = {
     main = {
       enable = true;
       name = "Main";
@@ -61,6 +72,7 @@ let
           "group:web"
           "group:ui"
           "read"
+          "write"
           "memory_search"
           "memory_get"
           "sessions_list"
@@ -93,14 +105,19 @@ let
         - Use **remote** (wss Browserless) only for stealth / different exit IP:
           `browser navigate ... --target host --browser-profile remote`
           or `{"action": "navigate", "url": "https://...", "target": "host", "profile": "remote"}`
-        - Always cold-starts on new session (Docker) — expect 5-15s delay + possible transient failure on first call. Retry once.
+        - Always cold-starts on new session (Docker) - expect 5-15s delay + possible transient failure on first call. Retry once.
         - Fallback: `web_fetch` (text-only, instant, no JS/render).
-        - Screenshots are saved in the **main** workspace (parent directory), not your subdirectory. Reference via `../`.
+        - Save screenshots to `dropbox/researcher-screenshot-<desc>.png` for main to pick up.
 
         ## Search
         - `web_search` for general queries (Brave Search).
         - `web_fetch` for fetching specific URLs as text.
         - `google_places` for location/business lookups.
+
+        ## Workspace
+        - `write` for saving results, notes, and memory files to your workspace.
+        - `read` for reading workspace files.
+        - `dropbox/` for handing files to main (shared mount, see AGENTS.md).
       '';
     };
 
@@ -149,6 +166,7 @@ let
         ## Writing
         - `write` tool for creating/updating workspace files.
         - Use for drafting responses, saving research summaries from other agents.
+        - `dropbox/` for handing files to main (shared mount, see AGENTS.md).
       '';
     };
 
@@ -160,6 +178,7 @@ let
           "group:ha"
           "mcp"
           "read"
+          "write"
           "sessions_list"
           "session_status"
         ];
@@ -169,7 +188,7 @@ let
         HA_URL = env "HA_URL";
         HA_TOKEN = env "HA_TOKEN";
       };
-      description = "Workspace: rw, network: bridge. Isolated physical-world only — no web/email path to devices.";
+      description = "Workspace: rw, network: bridge. Isolated physical-world only - no web/email path to devices.";
       delegates = "Home Assistant, smart home control, device automation, MCP integrations";
 
       agentsMd = ''
@@ -192,7 +211,11 @@ let
 
         ## MCP
         - Model Context Protocol integrations for extended tool access.
-        - Read-only access to workspace files for context gathering.
+
+        ## Workspace
+        - `write` for saving notes, device state, and memory files to your workspace.
+        - `read` for reading workspace files.
+        - `dropbox/` for handing files to main (shared mount, see AGENTS.md).
       '';
     };
   };
@@ -276,7 +299,13 @@ in
           workspaceAccess = "rw";
           docker = {
             network = "bridge";
-            binds = [ "/var/lib/openclaw/workspace/skills:${workspace}/skills:ro" ];
+            binds = [
+              "${hostWorkspace}/skills:${workspace}/skills:ro"
+              "${hostWorkspace}/SOUL.md:${workspace}/sub-agents/${id}/SOUL.md:ro"
+              "${hostWorkspace}/STYLE.md:${workspace}/sub-agents/${id}/STYLE.md:ro"
+              "${hostWorkspace}/USER.md:${workspace}/sub-agents/${id}/USER.md:ro"
+              "${hostWorkspace}/dropbox/${id}:${workspace}/sub-agents/${id}/dropbox:rw"
+            ];
             env = def.sandboxSecrets // {
               OPENCLAW_GATEWAY_TOKEN = env "OPENCLAW_GATEWAY_TOKEN";
               OPENCLAW_GATEWAY_URL = gatewayUrl;

@@ -1,7 +1,7 @@
-# OpenClaw gateway configuration — generated as JSON via builtins.toJSON
+# OpenClaw gateway configuration - generated as JSON via builtins.toJSON
 # Secret placeholders (${VAR}) are resolved by OpenClaw at runtime from process env.
 # Nix-evaluable values (domain, port) are inlined at build time.
-# Agent definitions imported from agents.nix — single source of truth.
+# Agent definitions imported from agents.nix - single source of truth.
 # Runtime mutable: setup copies this to /var/lib/openclaw/openclaw.json (writable).
 {
   pkgs,
@@ -11,13 +11,11 @@
 }:
 let
   agentDefs = import ./agents.nix { inherit lib; };
-  inherit (agentDefs) agents enabledSubAgents;
-
   port = 18789;
   gatewayUrl = "ws://172.17.0.1:${toString port}";
   workspace = "/home/node/.openclaw/workspace";
 
-  # Produces literal ${VAR} in output JSON — OpenClaw resolves from process env
+  # Produces literal ${VAR} in output JSON - OpenClaw resolves from process env
   env = name: "\${${name}}";
 
   # Common sandbox env shared by all sub-agents

@@ -9,8 +9,10 @@ let
   cfg = config.services.openclaw;
   openclawConfig = import ./config.nix { inherit pkgs lib settings; };
   agentDefs = openclawConfig.agentDefs;
-  workspaceDefs = import ./workspace.nix { inherit lib agentDefs; };
+  workspaceDefs = import ./workspace.nix { inherit agentDefs; };
+  # Keep in sync with image.nix
   baseImage = "ghcr.io/phioranex/openclaw-docker:latest";
+  customImage = "openclaw-custom:latest";
   configDir = "/var/lib/openclaw";
   workspaceDir = "${configDir}/workspace";
 
@@ -40,17 +42,10 @@ let
   subAgentSetup = lib.concatStringsSep "\n" (
     lib.mapAttrsToList (id: files: ''
       agent_dir="${workspaceDir}/sub-agents/${id}"
-      mkdir -p "$agent_dir/memory"
+      mkdir -p "$agent_dir/memory" "${workspaceDir}/dropbox/${id}"
+      chown 1000:1000 "${workspaceDir}/dropbox/${id}"
       cp ${files.agentsMd} "$agent_dir/AGENTS.md"
       cp ${files.toolsMd} "$agent_dir/TOOLS.md"
-      for shared in SOUL.md STYLE.md USER.md; do
-        if [ -f "${workspaceDir}/$shared" ]; then
-          ln -sf "../../$shared" "$agent_dir/$shared"
-        fi
-      done
-      if [ -d "${workspaceDir}/skills" ]; then
-        ln -sfn "../../skills" "$agent_dir/skills"
-      fi
     '') subAgentFiles
   );
 
@@ -83,10 +78,13 @@ in
       serviceConfig.Type = "oneshot";
       script = ''
         set -euo pipefail
-        mkdir -p ${configDir} ${workspaceDir}/memory
+        mkdir -p ${configDir} ${workspaceDir}/memory ${workspaceDir}/dropbox ${workspaceDir}/quarantine ${workspaceDir}/skills
 
-        # Deploy shared workspace files (e.g. USER.md, skills/, etc.)
-        cp -r ${./workspace}/. "${workspaceDir}/"
+        # Seed baked-in skills from the custom image (non-destructive, preserves user-installed skills)
+        # clawhub installs to /opt/openclaw-skills/skills/<name>/ and /opt/openclaw-skills/.clawhub/
+        ${pkgs.docker}/bin/docker create --name openclaw-skill-seed ${customImage} true 2>/dev/null || true
+        ${pkgs.docker}/bin/docker cp openclaw-skill-seed:/opt/openclaw-skills/skills/. ${workspaceDir}/skills/ 2>/dev/null || true
+        ${pkgs.docker}/bin/docker rm -f openclaw-skill-seed 2>/dev/null || true
 
         # Set base ownership (agent owns everything by default)
         chown -R 1000:1000 ${configDir}
@@ -100,7 +98,6 @@ in
           local target="${workspaceDir}/$name"
           local separator=$'\n\n---\n\n'
 
-          local persistent_content=""
           # Check for existing persistent marker
           if [ -f "$target" ] && grep -Fq "${workspaceDefs.persistentMarker}" "$target"; then
              # Extract from marker line onwards
@@ -142,6 +139,72 @@ in
         chmod 0640 /run/openclaw.env
         ${envFileScript}
       '';
+    };
+
+    # Auto-scan sub-agent dropbox writes for prompt injection and malware.
+    # Uses inotifywait for recursive monitoring since systemd.path only watches direct children.
+    systemd.services.openclaw-dropbox-scan = {
+      description = "Watch and scan OpenClaw dropbox for prompt injection and malware";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "openclaw-setup.service" ];
+      requires = [ "openclaw-setup.service" ];
+      path = with pkgs; [
+        inotify-tools
+        clamav
+        gnugrep
+        findutils
+        coreutils
+      ];
+      serviceConfig = {
+        Type = "simple";
+        Restart = "on-failure";
+        RestartSec = "10s";
+        ExecStart = pkgs.writeShellScript "openclaw-dropbox-watch" ''
+          set -euo pipefail
+          DROPBOX="${workspaceDir}/dropbox"
+          QUARANTINE="${workspaceDir}/quarantine"
+          SCAN_LOG="${workspaceDir}/memory/scan.log"
+          mkdir -p "$QUARANTINE"
+
+          scan_file() {
+            local file="$1"
+            [ -f "$file" ] || return 0
+            local flagged=false
+            local reason=""
+
+            # Prompt injection pattern scan (host-side, no container dependency)
+            if grep -qPi '<system>|<s>|<\|system\|>|<\|im_start\|>|ignore (all |any )?previous|you are now|new instructions|roleplay|act as|pretend you|disregard' "$file" 2>/dev/null; then
+              flagged=true
+              reason="prompt-injection-pattern"
+            fi
+
+            # Base64-encoded payload detection (>200 char blocks suggest embedded payloads)
+            if grep -qP '[A-Za-z0-9+/]{200,}={0,2}' "$file" 2>/dev/null; then
+              flagged=true
+              reason="''${reason:+$reason,}base64-payload"
+            fi
+
+            # ClamAV malware scan
+            if command -v clamscan >/dev/null 2>&1; then
+              if clamscan --infected --no-summary "$file" 2>/dev/null | grep -q FOUND; then
+                flagged=true
+                reason="''${reason:+$reason,}clamav-hit"
+              fi
+            fi
+
+            if [ "$flagged" = true ]; then
+              local base
+              base="$(basename "$file")"
+              mv "$file" "$QUARANTINE/$base.$(date +%s)"
+              echo "$(date -Is) QUARANTINED $file reason=$reason" >> "$SCAN_LOG"
+            fi
+          }
+
+          inotifywait -m -r -e close_write -e moved_to --format '%w%f' "$DROPBOX" | while read -r file; do
+            scan_file "$file"
+          done
+        '';
+      };
     };
 
     # Weekly image refresh
