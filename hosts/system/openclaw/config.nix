@@ -7,10 +7,11 @@
   pkgs,
   lib,
   settings,
+  openclaw-agents,
   ...
 }:
 let
-  agentDefs = import ./agents.nix { inherit lib; };
+  agentDefs = import ./agents.nix { inherit pkgs lib openclaw-agents; };
   port = 18789;
   gatewayUrl = "ws://172.17.0.1:${toString port}";
   workspace = "/home/node/.openclaw/workspace";
@@ -43,7 +44,7 @@ let
           color = "#00AA00";
         };
         remote = {
-          cdpUrl = "wss://production-sfo.browserless.io?token=${env "BROWSERLESS_API_TOKEN"}";
+          cdpUrl = "https://production-sfo.browserless.io?token=${env "BROWSERLESS_API_TOKEN"}";
           color = "#FF9900";
         };
       };
@@ -62,6 +63,10 @@ let
         api = "openai-responses";
         models = [
           {
+            id = "grok-4.20-beta";
+            name = "Grok 4.20 Beta";
+          }
+          {
             id = "grok-4-1-fast-non-reasoning";
             name = "Grok 4.1 Fast";
           }
@@ -76,10 +81,14 @@ let
     agents = {
       defaults = {
         model = {
-          primary = "xai/grok-4-1-fast-reasoning";
-          fallbacks = [ "xai/grok-4-1-fast-non-reasoning" ];
+          primary = "xai/grok-4.20-beta";
+          fallbacks = [
+            "xai/grok-4-1-fast-reasoning"
+            "xai/grok-4-1-fast-non-reasoning"
+          ];
         };
         models = {
+          "xai/grok-4.20-beta".alias = "grok-beta";
           "xai/grok-4-1-fast-reasoning".alias = "grok-reasoning";
           "xai/grok-4-1-fast-non-reasoning".alias = "grok-non-reasoning";
         };
@@ -150,6 +159,23 @@ let
       exec = {
         security = "full";
         ask = "off";
+      };
+      media = {
+        audio = {
+          enabled = true;
+          models = [
+            {
+              type = "cli";
+              command = "whisper";
+              args = [
+                "--model"
+                "base"
+                "{{MediaPath}}"
+              ];
+              timeoutSeconds = 45;
+            }
+          ];
+        };
       };
     };
 

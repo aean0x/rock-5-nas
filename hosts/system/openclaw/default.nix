@@ -6,10 +6,14 @@
   pkgs,
   lib,
   settings,
+  inputs,
   ...
 }:
 let
-  openclawConfig = import ./config.nix { inherit pkgs lib settings; };
+  openclawConfig = import ./config.nix {
+    inherit pkgs lib settings;
+    openclaw-agents = inputs.openclaw-agents;
+  };
   openclawPort = openclawConfig.port;
   customImage = "openclaw-custom:latest";
   configDir = "/var/lib/openclaw";
@@ -43,6 +47,8 @@ in
 
   config = {
 
+    environment.systemPackages = [ pkgs.chromium ];
+
     virtualisation.oci-containers.containers = {
       openclaw-gateway = {
         image = customImage;
@@ -54,6 +60,7 @@ in
           OPENCLAW_HOME = "/home/node";
           OPENCLAW_STATE_DIR = "/home/node/.openclaw";
           OPENCLAW_CONFIG_PATH = "/home/node/.openclaw/openclaw.json";
+          NODE_COMPILE_CACHE = "/var/tmp/openclaw-compile-cache";
         };
         environmentFiles = [ "/run/openclaw.env" ];
         volumes = [

@@ -27,7 +27,7 @@ let
   # -- WiFi AP --
   ssid = "aean-nas";
   channel = 36; # 5GHz channel (36, 40, 44, 48 for DFS-free)
-  countryCode = "DE";
+  countryCode = "US";
 
   # -- LAN subnet --
   lanAddress = "192.168.2.1";
@@ -98,7 +98,14 @@ in
       }
     ];
 
-    boot.kernel.sysctl."net.ipv4.ip_forward" = lib.mkForce 1;
+    boot.kernel.sysctl = {
+      "net.ipv4.ip_forward" = lib.mkForce 1;
+    };
+
+    # ===================
+    # Hardware/Regulatory
+    # ===================
+    hardware.wirelessRegulatoryDatabase = true;
 
     # ===================
     # Bridge (LAN side)
@@ -169,6 +176,8 @@ in
       radios.${apInterface} = {
         band = "5g";
         inherit channel countryCode;
+        ieee80211d = true;
+        ieee80211h = true;
         wifi4.enable = true;
         wifi5.enable = true;
         networks.${apInterface} = {

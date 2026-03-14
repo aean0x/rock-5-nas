@@ -20,9 +20,10 @@ openclaw/
 | Host path | Container path | Notes |
 |---|---|---|
 | `/var/lib/openclaw` | `/home/node/.openclaw` | Single volume mount, rw |
-| `.../openclaw.json` | `.../openclaw.json` | Generated config |
+| `.../openclaw.json` | `.../openclaw.json` | Generated config (from Nix) |
 | `.../workspace` | `.../workspace` | Main agent workspace |
 | `.../workspace/sub-agents/*` | same | Sub-agent workspaces |
+| `/run/openclaw.env` | N/A | Secrets for env interpolation |
 | `/var/run/docker.sock` | `/var/run/docker.sock` | Sandbox spawning |
 
 Gateway env vars (`OPENCLAW_HOME`, `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`) explicitly point to container paths. Subagent sandboxes get these via `agents.defaults.sandbox.docker.env` in `openclaw.json`.
@@ -40,9 +41,10 @@ All containers run as UID 1000 (maps to `node` inside, `user` on host). No root 
 Managed via `deployment.nix`. On rebuild/restart:
 1. **Config**: Generated `openclaw.json` (from `config.nix` + `agents.nix`) overwrites `/var/lib/openclaw/openclaw.json`.
 2. **Workspace**:
-   - `AGENTS.md`, `SOUL.md`, `STYLE.md` are generated from `workspace.nix` templates.
-   - **Persistence**: These 3 core docs have a "Protected" top section (repo-managed) and a "Persistent" bottom section (agent-managed). The setup script preserves the bottom section across rebuilds.
-   - **Sub-agents**: Workspaces generated fresh from `agents.nix` definitions (`AGENTS.md` + `TOOLS.md` per agent). Shared docs (`SOUL.md`, `STYLE.md`, `USER.md`) are symlinked from the parent workspace.
+   - `AGENTS.md`, `SOUL.md`, `STYLE.md` (main agent) and `AGENTS.md` (sub-agents) are generated from templates.
+   - **Persistence Pattern**: Documents use a "Protected" top section (repo-managed) and a "Persistent" bottom section (agent-managed) marked by `<!-- OPENCLAW-PERSISTENT-SECTION -->`.
+   - **Main Agent**: Uses `workspace.nix` for its core files. `AGENTS.md` dynamically lists available secrets from `sops.nix` and `api-gateway` services.
+   - **Sub-agents**: Identity files (`SOUL.md`, `USER.md`) and workflows are pulled from `openclaw-agents` input. `AGENTS.md` is managed via `subAgentWorkspace` in `agents.nix` to allow sub-agent persistence. `STYLE.md` is shared from main.
 
 ## Agent Sandbox Defaults & Key Splitting
 

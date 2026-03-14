@@ -3,27 +3,34 @@
   pkgs,
   lib,
   settings,
+  inputs,
   ...
 }:
 let
   cfg = config.services.openclaw;
-  openclawConfig = import ./config.nix { inherit pkgs lib settings; };
+  openclawConfig = import ./config.nix {
+    inherit pkgs lib settings;
+    openclaw-agents = inputs.openclaw-agents;
+  };
   agentDefs = openclawConfig.agentDefs;
-  workspaceDefs = import ./workspace.nix { inherit agentDefs; };
-  # Keep in sync with image.nix
+  workspaceDefs = import ./workspace.nix {
+    inherit lib agentDefs;
+    envSecrets = cfg.envSecrets;
+  };
+
   baseImage = "ghcr.io/phioranex/openclaw-docker:latest";
   customImage = "openclaw-custom:latest";
   configDir = "/var/lib/openclaw";
   workspaceDir = "${configDir}/workspace";
+  subAgentsDir = "${workspaceDir}/.agents";
 
-  # Generate env file script lines from envSecrets
   envFileScript = lib.concatStringsSep "\n" (
     lib.mapAttrsToList (
       envVar: secretPath: ''echo "${envVar}=$(cat ${secretPath})" >> /run/openclaw.env''
     ) cfg.envSecrets
   );
 
-  # Generated files for workspace assembly
+  # ── Main agent workspace files ─────────────────────────────
   persistentIntroFile = pkgs.writeText "persistent-intro" workspaceDefs.persistentIntro;
   workspaceDocs = lib.mapAttrs (
     name: doc: pkgs.writeText "${name}-protected" doc.protected
@@ -32,21 +39,76 @@ let
     name: doc: pkgs.writeText "${name}-default" doc.initialPersistent
   ) workspaceDefs.documents;
 
-  # Per-agent generated workspace files (AGENTS.md + TOOLS.md)
-  subAgentFiles = lib.mapAttrs (id: def: {
-    agentsMd = pkgs.writeText "${id}-AGENTS.md" def.agentsMd;
-    toolsMd = pkgs.writeText "${id}-TOOLS.md" (def.toolsMd or "");
-  }) agentDefs.enabledSubAgents;
+  # ── Shenhao template source ────────────────────────────────
+  templateSrc = agentDefs.templateSrc;
+  workflowDir = "${templateSrc}/.agents/workflows";
 
-  # Shell script snippet to deploy all sub-agent workspaces
+  subAgentPersistentIntroFile = pkgs.writeText "subagent-persistent-intro" agentDefs.subAgentWorkspace.persistentIntro;
+  subAgentAgentsDefault =
+    pkgs.writeText "subagent-agents-default"
+      agentDefs.subAgentWorkspace.documents."AGENTS.md".initialPersistent;
+
+  # Per-agent AGENTS.md protected sections (shared base + optional blurb)
+  baseProtected = agentDefs.subAgentWorkspace.documents."AGENTS.md".protected;
+  subAgentAgentsProtectedFor =
+    id:
+    let
+      ovr = agentDefs.resolveOverrides id;
+      blurb = if ovr.agentsMdBlurb != null then "\n${ovr.agentsMdBlurb}" else "";
+    in
+    pkgs.writeText "${id}-agents-protected" (baseProtected + blurb);
+
+  # STYLE.md deployed to each sub-agent (our formatting/language rules)
+  styleFile = workspaceDocs."STYLE.md";
+
+  # ── Sub-agent deployment (replicates setup.sh end state) ───
   subAgentSetup = lib.concatStringsSep "\n" (
-    lib.mapAttrsToList (id: files: ''
-      agent_dir="${workspaceDir}/sub-agents/${id}"
-      mkdir -p "$agent_dir/memory" "${workspaceDir}/dropbox/${id}"
-      chown 1000:1000 "${workspaceDir}/dropbox/${id}"
-      cp ${files.agentsMd} "$agent_dir/AGENTS.md"
-      cp ${files.toolsMd} "$agent_dir/TOOLS.md"
-    '') subAgentFiles
+    map (id: ''
+      # ── ${id} ──
+      agent_dir="${subAgentsDir}/${id}"
+      mkdir -p "$agent_dir/memory"
+
+      # Deploy per-agent identity files directly (setup.sh end state after BOOTSTRAP merge)
+      cp "${templateSrc}/.agents/${id}/soul.md" "$agent_dir/SOUL.md"
+      cp "${templateSrc}/.agents/${id}/user.md" "$agent_dir/USER.md"
+      # STYLE.md - our formatting and language rules
+      cp "${styleFile}" "$agent_dir/STYLE.md"
+
+      # AGENTS.md: Protected (with per-agent blurb) + Workflows + Agent Persistent workspace
+      tmp_protected="$agent_dir/AGENTS.md.protected"
+      cat "${subAgentAgentsProtectedFor id}" > "$tmp_protected"
+      echo "" >> "$tmp_protected"
+      echo "---" >> "$tmp_protected"
+      echo "# Workflow Reference for ${id}" >> "$tmp_protected"
+      echo "" >> "$tmp_protected"
+      case "${id}" in
+        planner)
+          for wf in paper-pipeline brainstorm rebuttal daily-digest; do
+            [ -f "${workflowDir}/$wf.md" ] && { echo "---" >> "$tmp_protected"; cat "${workflowDir}/$wf.md" >> "$tmp_protected"; }
+          done ;;
+        ideator|critic)
+          for wf in brainstorm paper-pipeline; do
+            [ -f "${workflowDir}/$wf.md" ] && { echo "---" >> "$tmp_protected"; cat "${workflowDir}/$wf.md" >> "$tmp_protected"; }
+          done ;;
+        surveyor)
+          for wf in brainstorm paper-pipeline rebuttal; do
+            [ -f "${workflowDir}/$wf.md" ] && { echo "---" >> "$tmp_protected"; cat "${workflowDir}/$wf.md" >> "$tmp_protected"; }
+          done ;;
+        coder|writer|reviewer)
+          for wf in paper-pipeline rebuttal; do
+            [ -f "${workflowDir}/$wf.md" ] && { echo "---" >> "$tmp_protected"; cat "${workflowDir}/$wf.md" >> "$tmp_protected"; }
+          done ;;
+        scout)
+          for wf in daily-digest paper-pipeline brainstorm; do
+            [ -f "${workflowDir}/$wf.md" ] && { echo "---" >> "$tmp_protected"; cat "${workflowDir}/$wf.md" >> "$tmp_protected"; }
+          done ;;
+      esac
+
+      update_doc_custom "$agent_dir/AGENTS.md" "$tmp_protected" "${subAgentAgentsDefault}" "${subAgentPersistentIntroFile}" "${agentDefs.subAgentWorkspace.persistentMarker}"
+      rm -f "$tmp_protected"
+
+      chown -R 1000:1000 "$agent_dir"
+    '') agentDefs.subAgentIds
   );
 
   dockerGid =
@@ -58,13 +120,11 @@ in
 {
   config = {
 
-    # Recover from in-process restarts (SIGUSR1 / /config edits)
     systemd.services.docker-openclaw-gateway.serviceConfig = {
       Restart = pkgs.lib.mkForce "always";
       RestartSec = "5s";
     };
 
-    # Deploy config + secrets (runs once on rebuild, not on container restart)
     systemd.services.openclaw-setup = {
       description = "Deploy OpenClaw config and secrets";
       wantedBy = [ "multi-user.target" ];
@@ -78,133 +138,60 @@ in
       serviceConfig.Type = "oneshot";
       script = ''
         set -euo pipefail
-        mkdir -p ${configDir} ${workspaceDir}/memory ${workspaceDir}/dropbox ${workspaceDir}/quarantine ${workspaceDir}/skills
+        mkdir -p ${configDir} ${workspaceDir}/memory ${workspaceDir}/skills ${subAgentsDir}
 
-        # Seed baked-in skills from the custom image (non-destructive, preserves user-installed skills)
-        # clawhub installs to /opt/openclaw-skills/skills/<name>/ and /opt/openclaw-skills/.clawhub/
-        ${pkgs.docker}/bin/docker create --name openclaw-skill-seed ${customImage} true 2>/dev/null || true
-        ${pkgs.docker}/bin/docker cp openclaw-skill-seed:/opt/openclaw-skills/skills/. ${workspaceDir}/skills/ 2>/dev/null || true
-        ${pkgs.docker}/bin/docker rm -f openclaw-skill-seed 2>/dev/null || true
-
-        # Set base ownership (agent owns everything by default)
-        chown -R 1000:1000 ${configDir}
-        chmod -R 700 ${configDir}
-
-        # Function to update managed files (AGENTS.md, SOUL.md, STYLE.md) with persistent sections
-        update_doc() {
-          local name="$1"
+        # Protected+persistent doc assembly
+        update_doc_custom() {
+          local target="$1"
           local protected_path="$2"
           local default_persistent_path="$3"
-          local target="${workspaceDir}/$name"
+          local intro_path="$4"
+          local marker="$5"
           local separator=$'\n\n---\n\n'
 
-          # Check for existing persistent marker
-          if [ -f "$target" ] && grep -Fq "${workspaceDefs.persistentMarker}" "$target"; then
-             # Extract from marker line onwards
-             sed -n "/${workspaceDefs.persistentMarker}/,\$p" "$target" > "$target.persistent"
+          if [ -f "$target" ] && grep -Fq "$marker" "$target"; then
+             sed -n "/$marker/,\$p" "$target" > "$target.persistent"
           else
-             # Combine intro + default content
-             cat ${persistentIntroFile} "$default_persistent_path" > "$target.persistent"
+             cat "$intro_path" "$default_persistent_path" > "$target.persistent"
           fi
 
-          # Assemble: Protected + Separator + Persistent
           cat "$protected_path" > "$target.tmp"
           echo "$separator" >> "$target.tmp"
           cat "$target.persistent" >> "$target.tmp"
 
           mv "$target.tmp" "$target"
           rm -f "$target.persistent"
-
-          # Ensure ownership by agent
           chown 1000:1000 "$target"
           chmod 0640 "$target"
         }
 
-        # Update managed documents
+        update_doc() {
+          update_doc_custom "${workspaceDir}/$1" "$2" "$3" "${persistentIntroFile}" "${workspaceDefs.persistentMarker}"
+        }
+
         update_doc "AGENTS.md" "${workspaceDocs."AGENTS.md"}" "${workspaceDefaults."AGENTS.md"}"
         update_doc "SOUL.md"   "${workspaceDocs."SOUL.md"}"   "${workspaceDefaults."SOUL.md"}"
         update_doc "STYLE.md"  "${workspaceDocs."STYLE.md"}"  "${workspaceDefaults."STYLE.md"}"
 
-        # Deploy sub-agent workspaces (generated from agents.nix)
+        # Sub-agent workspaces
         ${subAgentSetup}
 
+        # Own everything under configDir before writing the config file
+        chown -R 1000:1000 ${configDir}
+        chmod -R 700 ${configDir}
+
+        # openclaw.json
         CONFIG_FILE="${configDir}/openclaw.json"
         cp ${openclawConfig.configFile} "$CONFIG_FILE"
         chown 1000:${toString dockerGid} "$CONFIG_FILE"
         chmod 0660 "$CONFIG_FILE"
 
-        # Generate environment file from services.openclaw.envSecrets
+        # Environment file
         rm -f /run/openclaw.env
         touch /run/openclaw.env
         chmod 0640 /run/openclaw.env
         ${envFileScript}
       '';
-    };
-
-    # Auto-scan sub-agent dropbox writes for prompt injection and malware.
-    # Uses inotifywait for recursive monitoring since systemd.path only watches direct children.
-    systemd.services.openclaw-dropbox-scan = {
-      description = "Watch and scan OpenClaw dropbox for prompt injection and malware";
-      wantedBy = [ "multi-user.target" ];
-      after = [ "openclaw-setup.service" ];
-      requires = [ "openclaw-setup.service" ];
-      path = with pkgs; [
-        inotify-tools
-        clamav
-        gnugrep
-        findutils
-        coreutils
-      ];
-      serviceConfig = {
-        Type = "simple";
-        Restart = "on-failure";
-        RestartSec = "10s";
-        ExecStart = pkgs.writeShellScript "openclaw-dropbox-watch" ''
-          set -euo pipefail
-          DROPBOX="${workspaceDir}/dropbox"
-          QUARANTINE="${workspaceDir}/quarantine"
-          SCAN_LOG="${workspaceDir}/memory/scan.log"
-          mkdir -p "$QUARANTINE"
-
-          scan_file() {
-            local file="$1"
-            [ -f "$file" ] || return 0
-            local flagged=false
-            local reason=""
-
-            # Prompt injection pattern scan (host-side, no container dependency)
-            if grep -qPi '<system>|<s>|<\|system\|>|<\|im_start\|>|ignore (all |any )?previous|you are now|new instructions|roleplay|act as|pretend you|disregard' "$file" 2>/dev/null; then
-              flagged=true
-              reason="prompt-injection-pattern"
-            fi
-
-            # Base64-encoded payload detection (>200 char blocks suggest embedded payloads)
-            if grep -qP '[A-Za-z0-9+/]{200,}={0,2}' "$file" 2>/dev/null; then
-              flagged=true
-              reason="''${reason:+$reason,}base64-payload"
-            fi
-
-            # ClamAV malware scan
-            if command -v clamscan >/dev/null 2>&1; then
-              if clamscan --infected --no-summary "$file" 2>/dev/null | grep -q FOUND; then
-                flagged=true
-                reason="''${reason:+$reason,}clamav-hit"
-              fi
-            fi
-
-            if [ "$flagged" = true ]; then
-              local base
-              base="$(basename "$file")"
-              mv "$file" "$QUARANTINE/$base.$(date +%s)"
-              echo "$(date -Is) QUARANTINED $file reason=$reason" >> "$SCAN_LOG"
-            fi
-          }
-
-          inotifywait -m -r -e close_write -e moved_to --format '%w%f' "$DROPBOX" | while read -r file; do
-            scan_file "$file"
-          done
-        '';
-      };
     };
 
     # Weekly image refresh

@@ -1,338 +1,191 @@
-# OpenClaw agent definitions - single source of truth for config, workspace docs, and tool profiles.
-# Each agent's full definition lives here: JSON config fields, AGENTS.md content, TOOLS.md content.
-# Disabled agents are excluded from config JSON and workspace generation entirely.
-{ lib }:
+# OpenClaw agent definitions - imports shenhao-stu/openclaw-agents manifest.
+# Agent IDs and roles come from the pinned repo's agents.yaml.
+# Tool policies, sandbox secrets, and JSON config generation are layered on here.
+#
+# Structure:
+#   1. YAML import & shared defaults (tools, workspace templates)
+#   2. Per-agent override dicts
+#   3. mkAgent config builder
+{
+  pkgs,
+  lib,
+  openclaw-agents,
+}:
 let
-  # Produces literal ${VAR} in output JSON - OpenClaw resolves from process env
   env = name: "\${${name}}";
+  hostWorkspace = "/home/node/.openclaw/workspace";
 
-  hostWorkspace = "/var/lib/openclaw/workspace";
-
-  toolsList = tools: lib.concatStringsSep ", " tools;
-
-  # Shared boilerplate injected into every sub-agent AGENTS.md
-  subAgentBoilerplate = name: ''
-    - **Admin CLI rule:** Only **main** agent (sandbox=off) may run `openclaw doctor`, `status`, `gateway token new`, `sandbox recreate`, or any gateway-level diagnostics. Sub-agents: reply exactly "Delegate to main" and stop. Never run them yourself.
-
-    ## Workspace
-    Your working directory is a subdirectory of the main workspace. Anything you save here is visible to the orchestrator and other agents via the parent workspace.
-
-    ## Every Session
-    Before doing anything else:
-    1. Read `SOUL.md` - this is who you are
-    2. Read `STYLE.md` - this is how you write. Apply to **every message you send**, no exceptions.
-    3. Read `USER.md` - this is who you're helping
-    4. Read `TOOLS.md` - your available tools and usage notes
-    5. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-
-    ## Memory
-    You wake up fresh each session. These files are your continuity:
-    - **Daily notes:** `memory/YYYY-MM-DD.md` (create `memory/` if needed) - raw logs of what happened
-
-    Capture what matters. Decisions, context, things to remember. Skip the secrets unless asked to keep them.
-
-    ## Sharing Files with Main
-    - `dropbox/` in your workspace is your private handoff directory to main. Only you and main can see it.
-    - To hand off files (downloads, screenshots, research artifacts): write them to `dropbox/`.
-    - Main treats all dropbox content as untrusted input and scans before reading - this is by design.
-
-    ## Skills
-    - Skills are shared read-only across all agents.
-    - Never install or edit skills yourself. Reply exactly "Delegate to main: install/edit skill <name>" and stop.
-
-    ## Safety
-    - Don't exfiltrate private data. Ever.
-    - When in doubt, report error in JSON.
+  # ── YAML Import ────────────────────────────────────────────
+  python = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
+  agentsJson = pkgs.runCommand "openclaw-agents-json" { nativeBuildInputs = [ python ]; } ''
+        python3 -c "
+    import yaml, json, sys
+    raw = open('${openclaw-agents}/agents.yaml', 'rb').read().decode('utf-8', errors='replace')
+    data = yaml.safe_load(raw)
+    json.dump(data, sys.stdout, ensure_ascii=False)
+    " > $out
   '';
+  manifest = builtins.fromJSON (builtins.readFile agentsJson);
+  allAgents = manifest.agents;
+  subAgentList = builtins.filter (a: a.id != "main") allAgents;
+  subAgentIds = map (a: a.id) subAgentList;
 
-  agents = {
-    main = {
-      enable = true;
-      name = "Main";
-      tools = {
-        profile = "full";
-        allow = [ ];
-        deny = [
-          "group:web"
-          "group:email"
-          "group:messaging"
-          "group:ui"
-        ];
-      };
-      sandboxSecrets = { };
-      description = "Orchestrator. Full local tools minus externals. Sandbox: off.";
-      delegates = "";
+  # ── Agent display name (strip emoji prefix) ───────────────
+  agentName =
+    a:
+    let
+      parts = lib.splitString " " a.name;
+    in
+    if builtins.length parts > 1 then builtins.elemAt parts 1 else a.name;
+
+  # ── Shared Defaults ────────────────────────────────────────
+  # Sub-agents inherit all tools from agents.defaults in config.nix.
+  # Overrides use deny lists to restrict, or extraAllow to explicitly grant group access.
+  defaultOverrides = {
+    extraAllow = [ ];
+    denyTools = [ ];
+    secrets = { };
+    agentsMdBlurb = null;
+  };
+
+  # ── Main Agent Config ─────────────────────────────────────
+  mainTools = {
+    profile = "full";
+    # prettier-ignore
+    deny = [
+      "group:web"
+      "group:email"
+      "group:messaging"
+      "group:ui"
+    ];
+  };
+
+  # ── Per-Agent Overrides ────────────────────────────────────
+  # Each key maps to an agent ID. Missing agents fall back to defaultOverrides.
+  # Fields:
+  #   extraAllow    - additional tool grants (e.g. "group:web", "sessions_spawn")
+  #   denyTools     - explicit deny list
+  #   secrets       - env vars injected into sandbox
+  #   agentsMdBlurb - optional markdown prepended to this agent's AGENTS.md protected section
+  agentOverrides = {
+    planner = {
+      extraAllow = [ "sessions_spawn" ];
     };
-
-    researcher = rec {
-      enable = true;
-      name = "Researcher";
-      tools = {
-        allow = [
-          "group:web"
-          "group:ui"
-          "read"
-          "write"
-          "memory_search"
-          "memory_get"
-          "sessions_list"
-          "session_status"
-        ];
-        deny = [ ];
-      };
-      sandboxSecrets = {
+    ideator = { };
+    critic = { };
+    surveyor = {
+      extraAllow = [ "group:web" ];
+      secrets = {
         BRAVE_API_KEY = env "BRAVE_API_KEY";
         GOOGLE_PLACES_API_KEY = env "GOOGLE_PLACES_API_KEY";
+        BROWSERLESS_API_TOKEN = env "BROWSERLESS_API_TOKEN";
       };
-      description = "Workspace: rw, network: bridge. Browser: allowHostControl (host Browserless CDP). Screenshots save to main workspace.";
-      delegates = "web research, browsing, search queries, place lookups";
-
-      agentsMd = ''
-        # AGENTS.md - Researcher
-
-        ## Role (enforced)
-        Tools allow: ${toolsList tools.allow}.
-        Tools deny: none (all unlisted tools are implicitly denied).
-        Output ONLY valid JSON: {"result": "<data>", "status": "done" | "error", "error": "..." optional}. No markdown.
-      ''
-      + subAgentBoilerplate "Researcher";
-
-      toolsMd = ''
-        # TOOLS.md - Researcher
-
-        ## Browser
-        - Default profile: **local** (managed Chromium on host, zero port conflicts, fastest).
-        - Use **remote** (wss Browserless) only for stealth / different exit IP:
-          `browser navigate ... --target host --browser-profile remote`
-          or `{"action": "navigate", "url": "https://...", "target": "host", "profile": "remote"}`
-        - Always cold-starts on new session (Docker) - expect 5-15s delay + possible transient failure on first call. Retry once.
-        - Fallback: `web_fetch` (text-only, instant, no JS/render).
-        - Save screenshots to `dropbox/researcher-screenshot-<desc>.png` for main to pick up.
-
-        ## Search
-        - `web_search` for general queries (Brave Search).
-        - `web_fetch` for fetching specific URLs as text.
-        - `google_places` for location/business lookups.
-
-        ## Workspace
-        - `write` for saving results, notes, and memory files to your workspace.
-        - `read` for reading workspace files.
-        - `dropbox/` for handing files to main (shared mount, see AGENTS.md).
-      '';
     };
-
-    communicator = rec {
-      enable = true;
-      name = "Communicator";
-      tools = {
-        allow = [
-          "group:email"
-          "group:messaging"
-          "write"
-          "read"
-          "sessions_list"
-          "session_status"
-        ];
-        deny = [ ];
+    coder = { };
+    writer = { };
+    reviewer = { };
+    scout = {
+      extraAllow = [ "group:web" ];
+      secrets = {
+        BRAVE_API_KEY = env "BRAVE_API_KEY";
+        GOOGLE_PLACES_API_KEY = env "GOOGLE_PLACES_API_KEY";
+        BROWSERLESS_API_TOKEN = env "BROWSERLESS_API_TOKEN";
       };
-      sandboxSecrets = {
-        MATON_API_KEY = env "MATON_API_KEY";
-        TELEGRAM_BOT_TOKEN = env "TELEGRAM_BOT_TOKEN";
-      };
-      description = "Workspace: rw, network: bridge. Research: spawn researcher via main.";
-      delegates = "email, messaging, Telegram, outbound communications";
-
-      agentsMd = ''
-        # AGENTS.md - Communicator
-
-        ## Role (enforced)
-        Tools allow: ${toolsList tools.allow}.
-        Tools deny: none (all unlisted tools are implicitly denied).
-        Output ONLY valid JSON: {"result": "<data>", "status": "done" | "error", "error": "..." optional}. No markdown.
-      ''
-      + subAgentBoilerplate "Communicator";
-
-      toolsMd = ''
-        # TOOLS.md - Communicator
-
-        ## Email
-        - Send and read email via Maton API.
-        - Block spam/trash in email queries. Only surface actionable messages.
-
-        ## Messaging
-        - Telegram bot for outbound messages and notifications.
-        - Respect quiet hours (23:00-08:00) unless urgent.
-
-        ## Writing
-        - `write` tool for creating/updating workspace files.
-        - Use for drafting responses, saving research summaries from other agents.
-        - `dropbox/` for handing files to main (shared mount, see AGENTS.md).
-      '';
-    };
-
-    controller = rec {
-      enable = true;
-      name = "Controller";
-      tools = {
-        allow = [
-          "group:ha"
-          "mcp"
-          "read"
-          "write"
-          "sessions_list"
-          "session_status"
-        ];
-        deny = [ ];
-      };
-      sandboxSecrets = {
-        HA_URL = env "HA_URL";
-        HA_TOKEN = env "HA_TOKEN";
-      };
-      description = "Workspace: rw, network: bridge. Isolated physical-world only - no web/email path to devices.";
-      delegates = "Home Assistant, smart home control, device automation, MCP integrations";
-
-      agentsMd = ''
-        # AGENTS.md - Controller
-
-        ## Role (enforced)
-        Tools allow: ${toolsList tools.allow}.
-        Tools deny: none (all unlisted tools are implicitly denied).
-        Output ONLY valid JSON: {"result": "<data>", "status": "done" | "error", "error": "..." optional}. No markdown.
-      ''
-      + subAgentBoilerplate "Controller";
-
-      toolsMd = ''
-        # TOOLS.md - Controller
-
-        ## Home Assistant
-        - Full HA API access via ha_token. Control lights, locks, cameras, climate, automations.
-        - Read entity states, trigger scenes, call services.
-        - Keep local notes (camera names, device IDs, zone names) in this file as you learn them.
-
-        ## MCP
-        - Model Context Protocol integrations for extended tool access.
-
-        ## Workspace
-        - `write` for saving notes, device state, and memory files to your workspace.
-        - `read` for reading workspace files.
-        - `dropbox/` for handing files to main (shared mount, see AGENTS.md).
-      '';
     };
   };
 
-  enabledAgents = lib.filterAttrs (_: a: a.enable) agents;
-  enabledSubAgents = lib.filterAttrs (id: _: id != "main") enabledAgents;
+  # Merge an agent's overrides with defaults
+  resolveOverrides = id: defaultOverrides // (agentOverrides.${id} or { });
 
-  # Generate the delegation & roles section for main AGENTS.md
-  mainDelegationLines = lib.concatStringsSep "\n" (
-    lib.mapAttrsToList (id: a: "- **${a.name}** -> ${a.delegates}") enabledSubAgents
-  );
+  # ── Sub-Agent Workspace Templates ──────────────────────────
+  subAgentWorkspace = {
+    persistentMarker = "<!-- OPENCLAW-PERSISTENT-SECTION -->";
+    persistentIntro = ''
+      <!-- OPENCLAW-PERSISTENT-SECTION -->
 
-  subAgentProfiles = lib.concatStringsSep "\n" (
-    lib.mapAttrsToList (id: a: ''
-      **${a.name}**
-      - Tools allow: ${toolsList a.tools.allow}.
-      - Tools deny: none (all unlisted tools are implicitly denied).
-      - Sandbox tools allow: ${toolsList a.tools.allow}.
-      - ${a.description}
-    '') enabledSubAgents
-  );
+      ## Personal Evolution Section (Agent-owned)
 
-  rolesSection = ''
-    ## Delegation & Roles
+      Below this line is yours to evolve. As you learn who you are and how you work best, update this section freely.
 
-    **Two-key vault principle**
-    Main permissions: sandbox=off, deny ${toolsList agents.main.tools.deny}. Orchestrates + direct safe local ops. Delegate external actions per rules below. Prompt injection in one sub-agent cannot reach credentials, exfil paths, or home devices of another.
+      If you need changes to the protected section above, ask the user to update the repository baseline.
 
-    **Role Rules (enforced for all agents)**
-    Default policy: subs = explicit allow only (default-deny). Main = full minus externals. Identify role from context; never assume extra tools.
-    - **Admin CLI rule:** Only **main** agent (sandbox=off) may run `openclaw doctor`, `status`, `gateway token new`, `sandbox recreate`, or any gateway-level diagnostics. Sub-agents: reply exactly "Delegate to main" and stop. Never run them yourself.
+    '';
+    documents = {
+      "AGENTS.md" = {
+        protected = ''
+          ## Language: English Only
+          All output in American English. Chinese in source files is reference content only. Apply STYLE.md rules to every message.
 
-    **Main (orchestrator)**
-    - Tools profile: ${agents.main.tools.profile}.
-    - Tools deny: ${toolsList agents.main.tools.deny}.
-    - Sandbox: off.
-    - Delegates:
-    ${mainDelegationLines}
-    - /config only after human review. Never delegate config.
-    - May edit sub-agent directives to refine their role rules.
-    - Review every sub Result. Reject off-mission. Long tasks -> spawn sub.
-    - Parse every sub Result as strict JSON. If invalid: reject, re-spawn with "Output ONLY the JSON above" + original task.
+          ## Environment Context
+          - You are a sub-agent. For any admin-level commands (`openclaw doctor`, gateway operations, sandbox management, config changes), reply exactly "Delegate to main" and stop.
+          - Skills are shared from main to all sub-agents, mounted from `/home/node/.openclaw/workspace/skills`
+          - workspace/.tools is ro mounted and in PATH for common utilities.
+          - Sub-agents have full access to the same browser (Playwright), search, and tool commands as main. Use remote profile only when you specifically need stealth/different IP.
+        '';
+        initialPersistent = ''
+          ### Notes to Future Me
+          - Keep this section concise and practical.
+          - Record durable process improvements, not noisy logs.
+        '';
+      };
+    };
+  };
 
-    ${subAgentProfiles}
-    **Sandbox Defaults (all sub-agents)**
-    - Mode: non-main, scope: agent, Docker image: openclaw-sandbox:bookworm-slim
-    - Network: bridge (connects to gateway via ws://172.17.0.1:18789)
-    - readOnlyRoot: true, capDrop: ALL, cpus: 1
-    - Browser: enabled with allowHostControl (proxies to host Browserless CDP)
-    - Each sub-agent receives only its required API keys via docker env
-
-    **Delegation Protocol (no telephone game)**
-    * Main spawns with self-contained task + original goal summary.
-    * Sub-agent receives: its own role rules, sandbox, and task only.
-    * Sub-agent returns ONE Result message only.
-    * Main always validates against original intent before forwarding or acting.
-    * maxSpawnDepth=1 globally - no chains.
-  '';
+  # ── mkAgent: Build JSON config entry for a sub-agent ───────
+  mkAgent =
+    { workspace, gatewayUrl }:
+    a:
+    let
+      ovr = resolveOverrides a.id;
+    in
+    {
+      id = a.id;
+      workspace = "${workspace}/.agents/${a.id}";
+      identity.name = agentName a;
+      memorySearch.enabled = false;
+      sandbox = {
+        workspaceAccess = "rw";
+        docker = {
+          network = "bridge";
+          setupCommand = "export PATH=\"${workspace}/.tools:\$PATH\"";
+          binds = [
+            "${hostWorkspace}/skills:${workspace}/.agents/${a.id}/skills:ro"
+            "${hostWorkspace}/.tools:${workspace}/.tools:ro"
+          ];
+          env = ovr.secrets // {
+            OPENCLAW_GATEWAY_TOKEN = env "OPENCLAW_GATEWAY_TOKEN";
+            OPENCLAW_GATEWAY_URL = gatewayUrl;
+          };
+        };
+      };
+      tools =
+        lib.optionalAttrs (ovr.extraAllow != [ ]) { allow = ovr.extraAllow; }
+        // lib.optionalAttrs (ovr.denyTools != [ ]) { deny = ovr.denyTools; };
+    };
 
 in
 {
   inherit
-    agents
-    enabledAgents
-    enabledSubAgents
-    rolesSection
+    subAgentList
+    subAgentIds
+    subAgentWorkspace
+    agentOverrides
+    resolveOverrides
     ;
+  templateSrc = openclaw-agents;
 
   mkJsonConfig =
-    {
-      workspace,
-      gatewayUrl,
-    }:
+    { workspace, gatewayUrl }:
     let
-      mkAgent = id: def: {
-        inherit id;
-        workspace = "${workspace}/sub-agents/${id}";
-        identity.name = def.name;
-        memorySearch.enabled = false;
-        sandbox = {
-          workspaceAccess = "rw";
-          docker = {
-            network = "bridge";
-            binds = [
-              "${hostWorkspace}/skills:${workspace}/skills:ro"
-              "${hostWorkspace}/SOUL.md:${workspace}/sub-agents/${id}/SOUL.md:ro"
-              "${hostWorkspace}/STYLE.md:${workspace}/sub-agents/${id}/STYLE.md:ro"
-              "${hostWorkspace}/USER.md:${workspace}/sub-agents/${id}/USER.md:ro"
-              "${hostWorkspace}/dropbox/${id}:${workspace}/sub-agents/${id}/dropbox:rw"
-            ];
-            env = def.sandboxSecrets // {
-              OPENCLAW_GATEWAY_TOKEN = env "OPENCLAW_GATEWAY_TOKEN";
-              OPENCLAW_GATEWAY_URL = gatewayUrl;
-            };
-          };
-        };
-        tools = {
-          allow = def.tools.allow;
-          deny = def.tools.deny;
-          sandbox.tools = {
-            allow = def.tools.allow;
-            deny = def.tools.deny;
-          };
-        };
-      };
-
       mainDef = {
         id = "main";
         subagents.allowAgents = [ "*" ];
         sandbox.mode = "off";
         tools = {
-          profile = agents.main.tools.profile;
-          deny = agents.main.tools.deny;
+          profile = mainTools.profile;
+          deny = mainTools.deny;
         };
       };
-
-      subAgentDefs = lib.mapAttrsToList mkAgent enabledSubAgents;
     in
-    [ mainDef ] ++ subAgentDefs;
+    [ mainDef ] ++ (map (mkAgent { inherit workspace gatewayUrl; }) subAgentList);
 }
