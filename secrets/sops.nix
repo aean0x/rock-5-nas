@@ -69,6 +69,7 @@ in
         cloudflare_dns_api_token = { };
         xai_api_key = { };
         filebrowser_password = { };
+        crowdsec_bouncer_api_key = { };
         clawhub_token = { };
         x_api_key = { };
         x_api_secret = { };

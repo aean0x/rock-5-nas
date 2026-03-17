@@ -19,6 +19,7 @@ in
     ./containers/home-assistant.nix
     ./containers/filebrowser.nix
     ./containers/teamspeak.nix
+    ./containers/crowdsec.nix
     ./openclaw
   ];
 
