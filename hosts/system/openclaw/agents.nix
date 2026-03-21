@@ -38,20 +38,52 @@ let
     in
     if builtins.length parts > 1 then builtins.elemAt parts 1 else a.name;
 
-  # ── Tool Defaults ──────────────────────────────────────────
-  # Baseline tools every sub-agent gets. Per-agent extraAllow merges on top.
+  # ── Tool Policy ────────────────────────────────────────────
+  # Strategy: profile "full" gives every tool. tools.deny removes what's not needed.
+  # tools.allow is NOT used — it's an exclusive whitelist that replaces the profile.
+  #
+  # Three tiers:
+  #   1. Common tools — every sub-agent gets these (not listed, implied by profile "full")
+  #   2. Privileged tools — denied by default, granted per-agent via grantPrivileged
+  #   3. Admin tools — denied from ALL sub-agents unconditionally
+
   # prettier-ignore
-  defaultTools = [
+  commonTools = [
     "read"
     "write"
     "edit"
+    "web_search"
+    "web_fetch"
+    "browser"
+    "image"
+    "memory_search"
+    "memory_get"
+    "agents_list"
+    "session_status"
+    "tts"
+    "pdf"
     "sessions_list"
     "sessions_history"
     "sessions_send"
-    "lobster"
-    "group:memory"
-    "group:fs"
-    "browser"
+    "sessions_yield"
+  ];
+
+  # prettier-ignore
+  adminTools = [
+    "cron"
+    "gateway"
+    "nodes"
+    "message"
+    "canvas"
+  ];
+
+  # prettier-ignore
+  privilegedTools = [
+    "exec"
+    "apply_patch"
+    "process"
+    "sessions_spawn"
+    "subagents"
   ];
 
   # Secrets every sub-agent gets (gateway token is injected separately in mkAgent).
@@ -62,75 +94,99 @@ let
   };
 
   defaultOverrides = {
-    extraAllow = [ ];
+    grantPrivileged = [ ];
+    extraDeny = [ ];
     extraSecrets = { };
     agentsMdBlurb = null;
   };
 
   # ── Main Agent Config ─────────────────────────────────────
-  # PERMISSIONS DISABLED — all tool restrictions commented out while debugging sandbox tools.
-  # Re-enable once sub-agents confirmed to have full tool access.
   mainTools = {
     profile = "full";
-    # deny = [ "group:web" "group:messaging" "group:ui" ];
+    deny = [
+      "group:web"
+      "group:messaging"
+      "group:ui"
+    ];
   };
 
   # ── Per-Agent Overrides ────────────────────────────────────
-  # extraAllow merges with defaultTools for documentation purposes.
-  # Tool restrictions are currently disabled for debugging.
+  # grantPrivileged: which privileged tools this agent gets (removed from deny list).
+  # extraDeny: additional tools to deny beyond the defaults.
   agentOverrides = {
     planner = {
-      extraAllow = [
+      grantPrivileged = [
         "exec"
         "apply_patch"
+        "process"
         "sessions_spawn"
+        "subagents"
       ];
     };
     ideator = { };
     critic = { };
     surveyor = {
-      extraAllow = [ "exec" ];
+      grantPrivileged = [ "exec" ];
     };
     coder = {
-      extraAllow = [
+      grantPrivileged = [
         "exec"
         "apply_patch"
+        "process"
       ];
     };
     writer = {
-      extraAllow = [
+      grantPrivileged = [
         "exec"
         "apply_patch"
+        "process"
       ];
     };
     reviewer = {
-      extraAllow = [ "exec" ];
+      grantPrivileged = [
+        "exec"
+        "process"
+      ];
     };
     scout = {
-      extraAllow = [ "exec" ];
+      grantPrivileged = [
+        "exec"
+        "process"
+      ];
     };
   };
 
   resolveOverrides = id: defaultOverrides // (agentOverrides.${id} or { });
+
+  # Build deny list: adminTools + (privilegedTools minus granted) + extraDeny
+  mkDenyList =
+    ovr:
+    let
+      granted = ovr.grantPrivileged or [ ];
+    in
+    adminTools ++ (lib.subtractLists granted privilegedTools) ++ (ovr.extraDeny or [ ]);
 
   # ── Tool Summary (for AGENTS.md blurb injection) ───────────
   mkToolSummary =
     id:
     let
       ovr = resolveOverrides id;
-      extras = ovr.extraAllow;
+      granted = ovr.grantPrivileged or [ ];
+      denyList = mkDenyList ovr;
       allSecretNames = lib.attrNames (defaultSecrets // ovr.extraSecrets);
-      extrasLine =
-        if extras == [ ] then
-          "  - **Extra tools:** none (baseline only)"
+      grantedLine =
+        if granted == [ ] then
+          "  - **Granted (privileged):** none"
         else
-          "  - **Extra tools:** ${lib.concatStringsSep ", " extras}";
+          "  - **Granted (privileged):** ${lib.concatStringsSep ", " granted}";
+      denyLine = "  - **Denied:** ${lib.concatStringsSep ", " denyList}";
       secretsLine = "  - **Secrets:** ${lib.concatStringsSep ", " allSecretNames}";
     in
     ''
       ## Your Permissions
-      - **Baseline:** ${lib.concatStringsSep ", " defaultTools}
-      ${extrasLine}
+      - **Common tools:** ${lib.concatStringsSep ", " commonTools}
+      ${grantedLine}
+      ${denyLine}
       ${secretsLine}
     '';
 
@@ -158,7 +214,7 @@ let
           - For dangerous admin commands (`openclaw doctor`, gateway restart, sandbox config changes, secret rotation), reply exactly "Delegate to main" and stop. Safe read-only commands (status checks, log tailing, file reads) are fine to run locally.
           - Skills are shared from main, mounted read-only from `/home/node/.openclaw/workspace/skills`.
           - `.tools` is ro mounted and in PATH for common utilities (uv, docker, goplaces, bird, etc).
-          - Your tool allowlist is defined in openclaw.json and summarized below.
+          - Your tool set is defined in openclaw.json and summarized below.
         '';
         initialPersistent = ''
           ### Notes to Future Me
@@ -170,15 +226,12 @@ let
   };
 
   # ── mkAgent: Build JSON config entry for a sub-agent ───────
-  # PERMISSIONS DISABLED — no tools.allow or tools.deny emitted.
-  # Sub-agents inherit global profile only. Re-enable per-agent restrictions
-  # once sandbox tool provisioning is confirmed working.
   mkAgent =
     { workspace, gatewayUrl }:
     a:
     let
       ovr = resolveOverrides a.id;
-      # allowList = lib.unique (defaultTools ++ ovr.extraAllow);
+      denyList = mkDenyList ovr;
     in
     {
       id = a.id;
@@ -203,16 +256,18 @@ let
             };
         };
       };
-      # tools = {
-      #   profile = "full";
-      #   allow = allowList;
-      # };
+      tools = {
+        profile = "full";
+        deny = denyList;
+      };
     };
 
 in
 {
   inherit
-    defaultTools
+    commonTools
+    adminTools
+    privilegedTools
     defaultSecrets
     subAgentList
     subAgentIds
@@ -220,6 +275,7 @@ in
     agentOverrides
     resolveOverrides
     mkToolSummary
+    mkDenyList
     ;
   templateSrc = openclaw-agents;
 

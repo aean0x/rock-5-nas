@@ -11,25 +11,24 @@ let
   shenhaoSoul = if templateSrc != null then builtins.readFile "${templateSrc}/soul.md" else "";
 
   # ── Sub-agent permission table ───────────────────────────────
-  defaultTools = agentDefs.defaultTools or [ ];
+  commonTools = agentDefs.commonTools or [ ];
+  adminTools = agentDefs.adminTools or [ ];
+  privilegedTools = agentDefs.privilegedTools or [ ];
   subAgentIds = agentDefs.subAgentIds or [ ];
   defaultSecrets = agentDefs.defaultSecrets or { };
-  resolveOverrides =
-    agentDefs.resolveOverrides or (_: {
-      extraAllow = [ ];
-      extraSecrets = { };
-    });
+  resolveOverrides = agentDefs.resolveOverrides or (_: { });
+  mkDenyList = agentDefs.mkDenyList or (_: [ ]);
 
   mkAgentRow =
     id:
     let
       ovr = resolveOverrides id;
-      extras = ovr.extraAllow or [ ];
+      granted = ovr.grantPrivileged or [ ];
       extraSecretNames = lib.attrNames (ovr.extraSecrets or { });
-      extrasStr = if extras == [ ] then "-" else lib.concatStringsSep ", " extras;
+      grantedStr = if granted == [ ] then "-" else lib.concatStringsSep ", " granted;
       secretsStr = if extraSecretNames == [ ] then "-" else lib.concatStringsSep ", " extraSecretNames;
     in
-    "| ${id} | ${extrasStr} | ${secretsStr} |";
+    "| ${id} | ${grantedStr} | ${secretsStr} |";
 
   agentPermissions =
     if subAgentIds == [ ] then
@@ -40,11 +39,15 @@ let
 
         When delegating, know what each agent can and cannot do.
 
-        **Baseline (all sub-agents):** ${lib.concatStringsSep ", " defaultTools}
+        **Common tools (all sub-agents):** ${lib.concatStringsSep ", " commonTools}
+
+        **Always denied (admin):** ${lib.concatStringsSep ", " adminTools}
+
+        **Privileged (denied unless granted):** ${lib.concatStringsSep ", " privilegedTools}
 
         **Baseline secrets:** ${lib.concatStringsSep ", " (lib.attrNames defaultSecrets)}
 
-        | Agent | Extra Tools | Extra Secrets |
+        | Agent | Granted Privileged | Extra Secrets |
         |---|---|---|
         ${lib.concatStringsSep "\n" (map mkAgentRow subAgentIds)}
 

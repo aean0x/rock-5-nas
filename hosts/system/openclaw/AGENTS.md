@@ -60,9 +60,14 @@ Sandbox defaults in `openclaw.json` apply to ALL sandboxed agents unless overrid
 - Network: bridge (connects to gateway via ws://172.17.0.1:18789)
 - `readOnlyRoot: true`
 
-**Per-agent tool restrictions are currently disabled** while sandbox tool provisioning is being debugged. See `agents.nix` for the commented-out `tools` block in `mkAgent`.
+**Tool policy is deny-based** — `profile = "full"` gives all tools, `tools.deny` removes what's not needed.
 
-Target architecture: per-agent allowlists built from `defaultTools ++ extraAllow` in `agents.nix`.
+Three tiers defined in `agents.nix`:
+- **Common:** every sub-agent gets these (read, write, edit, web_search, web_fetch, browser, image, memory tools, session coordination, tts, pdf)
+- **Privileged:** denied by default, granted per-agent via `grantPrivileged` (exec, apply_patch, process, sessions_spawn, subagents)
+- **Admin:** denied from all sub-agents (cron, gateway, nodes, message, canvas)
+
+To add a new tool grant: edit `agentOverrides.<id>.grantPrivileged` in `agents.nix`. SOUL.md table and per-agent AGENTS.md update automatically on deploy.
 
 ## Editing openclaw.json
 
@@ -89,14 +94,17 @@ After deploying config changes, verify sub-agent tool availability:
 deploy remote-switch
 deploy ssh
 
-# Directly query a sub-agent's available tools (fastest feedback loop)
+# Query an agent's tools (runs embedded — shows full tool set, not deny-filtered)
 oc agent --agent scout --message "return only the output of available_tools"
-
-# Same pattern works for main
 oc agent --agent main --message "return only the output of available_tools"
 
 # General pattern: --agent <id> --message <instruction> for programmatic troubleshooting
 oc agent --agent coder --message "list your working directory contents"
+
+# NOTE: oc agent runs in embedded mode (gateway fallback) — per-agent tools.deny
+# only applies during gateway-mediated sessions (Telegram, sessions_spawn).
+# To verify deny lists, check the generated JSON directly:
+#   cat /var/lib/openclaw/openclaw.json | grep -oP '"id":"[^"]+"|"deny":\[[^\]]+\]'
 
 # Check sandbox tool policy and config health
 oc sandbox explain
