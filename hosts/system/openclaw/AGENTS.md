@@ -86,19 +86,20 @@ Secrets use `${ENV_VAR}` syntax - resolved by the gateway from env vars injected
 After deploying config changes, verify sub-agent tool availability:
 
 ```bash
-# Deploy config
 deploy remote-switch
-
-# SSH into device
 deploy ssh
 
-# Spawn a test sub-agent and ask it to list tools
-oc sessions spawn --agent scout --task "List every tool you have access to. Output tool names only, one per line."
-
-# Check sandbox state
+# Check sandbox tool policy and config health
 oc sandbox explain
+oc doctor
 
-# Query docs inside the container
+# Verify agent routing
+oc agents list --bindings
+
+# Ask main to spawn scout and report its tools
+oc agent --message "Spawn scout and have it list every tool it has access to. Report back the tool names."
+
+# Or query docs inside the container
 docker exec openclaw-gateway openclaw docs tools.sandbox.tools
 docker exec openclaw-gateway openclaw docs tools.subagents
 ```
@@ -109,9 +110,9 @@ docker exec openclaw-gateway openclaw docs tools.subagents
 2. `tools.allow/deny` — global filter
 3. `agents.list[].tools.allow/deny` — per-agent filter
 4. `tools.subagents.tools` — sub-agent filter (default: all except session tools)
-5. `tools.sandbox.tools` — sandbox filter (default: exec, browser, process only)
+5. `tools.sandbox.tools` — sandbox filter (requires explicit group names, not `"*"`)
 
-Layer 5 (`tools.sandbox.tools`) requires **explicit group names** — wildcard `"*"` does not work.
+Each layer can only further restrict — never grant back tools denied by an earlier layer.
 
 ## Upgrade & Container Refresh
 
