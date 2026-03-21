@@ -94,19 +94,19 @@ After deploying config changes, verify sub-agent tool availability:
 deploy remote-switch
 deploy ssh
 
-# Query an agent's tools (runs embedded — shows full tool set, not deny-filtered)
+# Verify per-agent deny lists (authoritative — shows layer 5 tools.deny per agent)
+cat /var/lib/openclaw/openclaw.json | grep -oP '"id":"[^"]+"|"deny":\[[^\]]+\]'
+
+# Inspect sandbox tool policy for a specific agent (layer 7 only, not per-agent deny)
+oc sandbox explain --agent scout
+
+# Prompt a sub-agent interactively (runs embedded — shows full tool set, not deny-filtered)
 oc agent --agent scout --message "return only the output of available_tools"
-oc agent --agent main --message "return only the output of available_tools"
 
 # General pattern: --agent <id> --message <instruction> for programmatic troubleshooting
 oc agent --agent coder --message "list your working directory contents"
 
-# NOTE: oc agent runs in embedded mode (gateway fallback) — per-agent tools.deny
-# only applies during gateway-mediated sessions (Telegram, sessions_spawn).
-# To verify deny lists, check the generated JSON directly:
-#   cat /var/lib/openclaw/openclaw.json | grep -oP '"id":"[^"]+"|"deny":\[[^\]]+\]'
-
-# Check sandbox tool policy and config health
+# Health and routing
 oc sandbox explain
 oc doctor
 
