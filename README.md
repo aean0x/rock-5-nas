@@ -155,7 +155,7 @@ Workstation remote-build (recommended for low-memory devices):
   remote-build         Build on workstation only (no push)
 
 Services:
-  oc <cmd> [args]      OpenClaw CLI (oc wizard, oc gateway status, ...)
+  openclaw <cmd>       OpenClaw CLI (openclaw doctor, openclaw agent, ...)
   onedrive-sync        Trigger OneDrive sync now
 
 Troubleshooting:
@@ -231,12 +231,12 @@ Bidirectional sync between OneDrive and the OpenClaw workspace via rclone. Runs 
 
 ### OpenClaw
 
-Multi-agent AI system running as a Docker-based gateway that spawns sandbox containers for sub-agents. Custom Docker image built on-device adds Docker CLI, uv, git, and common tools. The `oc` command provides CLI access:
+Multi-agent AI system running as a Docker-based gateway that spawns sandbox containers for sub-agents. Custom Docker image built on-device adds Docker CLI, uv, git, and common tools. The `openclaw` command routes through the running gateway container:
 
 ```bash
-./deploy oc wizard             # Initial setup
-./deploy oc gateway status     # Check gateway health
-./deploy oc doctor --fix       # Fix config issues
+./deploy openclaw doctor --fix       # Fix config issues
+./deploy openclaw gateway status     # Check gateway health
+./deploy openclaw agent --agent scout --message "..."  # Prompt a sub-agent
 ```
 
 Configuration lives in `openclaw.json` (committed with secret placeholders) and workspace dotfiles in `openclaw/workspace/`. See `AGENTS.md` for architecture details.

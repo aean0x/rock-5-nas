@@ -38,7 +38,7 @@ Gateway env vars (`OPENCLAW_HOME`, `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`)
 
 - **openclaw-builder** (oneshot, `image.nix`) - builds `openclaw-custom:latest` from upstream base image, adds Docker CLI + uv. Runs before gateway.
 - **openclaw-gateway** - main process, user `1000:1000`, `--network=host`, docker group for socket access.
-- **openclaw-cli** - ephemeral `docker run` via the `oc` wrapper. Same image, same user, same mounts.
+- **openclaw** (host CLI) - `docker exec` into running gateway via the `openclaw` wrapper script. No separate container.
 
 All containers run as UID 1000 (maps to `node` inside, `user` on host). No root at runtime.
 
@@ -94,33 +94,25 @@ After deploying config changes, verify sub-agent tool availability:
 deploy remote-switch
 deploy ssh
 
-# ── Authoritative tool validation (routes through gateway, all 8 layers applied) ──
-# This is the ONLY reliable way to see the final filtered tool set a sub-agent receives.
-# `oc agent` runs a separate container that falls back to embedded mode, bypassing deny lists.
-docker exec openclaw-gateway openclaw agent --agent scout --message "return only the output of available_tools"
-docker exec openclaw-gateway openclaw agent --agent planner --message "return only the output of available_tools"
-docker exec openclaw-gateway openclaw agent --agent ideator --message "return only the output of available_tools"
+# ── Agent commands (fall back to embedded mode — see caveat below) ──
+openclaw agent --agent scout --message "return only the output of available_tools"
+openclaw agent --agent <id> --message "<instruction>"
 
-# General pattern: prompt any sub-agent programmatically
-docker exec openclaw-gateway openclaw agent --agent <id> --message "<instruction>"
+# ── Config & diagnostics (these work correctly via docker exec) ──
+openclaw doctor
+openclaw agents list --bindings
+openclaw sandbox explain --agent scout
+openclaw plugins list
+openclaw config get tools --json
+openclaw docs tools.sandbox.tools
 
-# ── Supporting checks (partial views, useful for quick sanity) ──
-# Per-agent deny lists in generated JSON (mirrors Nix, useful to spot typos)
+# ── JSON deny list sanity check (mirrors Nix, useful to spot typos) ──
 cat /var/lib/openclaw/openclaw.json | grep -oP '"id":"[^"]+"|"deny":\[[^\]]+\]'
-
-# Sandbox tool policy (layer 7 only, not per-agent deny)
-oc sandbox explain --agent scout
-
-# Health and routing
-oc doctor
-oc agents list --bindings
-
-# Query docs inside the container
-docker exec openclaw-gateway openclaw docs tools.sandbox.tools
-docker exec openclaw-gateway openclaw docs tools.subagents
 ```
 
-**Caveat:** `oc agent --agent <id>` spawns a separate CLI container that often fails gateway connection and falls back to **embedded mode** — running the model with the full unfiltered tool set. Always use `docker exec openclaw-gateway openclaw agent` for accurate tool validation.
+**Agent command caveat:** `openclaw agent` spawns a fresh CLI process inside the gateway container via `docker exec`. Each invocation generates a new device identity that isn't paired with the gateway, causing the websocket handshake to time out and fall back to **embedded mode** (unfiltered tool set). This is a known limitation — the gateway requires device pairing for websocket auth, and there's no auto-approve for loopback.
+
+**To validate tool filtering with all 8 layers applied**, prompt a sub-agent through an actual channel (Telegram) or the Control UI — these are already-paired devices that go through the full gateway pipeline.
 
 ### Tool Permission Hierarchy
 

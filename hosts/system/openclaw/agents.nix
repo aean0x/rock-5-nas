@@ -237,7 +237,6 @@ let
       id = a.id;
       workspace = "${workspace}/.agents/${a.id}";
       identity.name = agentName a;
-      memorySearch.enabled = false;
       sandbox = {
         workspaceAccess = "rw";
         docker = {

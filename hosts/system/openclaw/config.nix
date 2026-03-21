@@ -63,8 +63,8 @@ let
         api = "openai-responses";
         models = [
           {
-            id = "grok-4.20-beta";
-            name = "Grok 4.20 Beta";
+            id = "grok-4.20";
+            name = "Grok 4.20";
           }
           {
             id = "grok-4-1-fast-non-reasoning";
@@ -94,6 +94,7 @@ let
         };
         inherit workspace;
         memorySearch = {
+          enabled = true;
           provider = "gemini";
           remote.apiKey = env "GEMINI_API_KEY";
           model = "gemini-embedding-001";
@@ -150,6 +151,7 @@ let
       web = {
         search = {
           enabled = true;
+          provider = "brave";
           maxResults = 10;
         };
         fetch = {
@@ -167,6 +169,7 @@ let
       exec = {
         security = "full";
         ask = "off";
+        applyPatch.enabled = true;
       };
       media = {
         audio = {

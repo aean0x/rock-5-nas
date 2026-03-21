@@ -183,31 +183,41 @@ in
         done
       '')
 
-      # OpenClaw CLI (ephemeral container, one-shot)
-      (writeShellScriptBin "oc" ''
+      # OpenClaw CLI — routes through the running gateway container.
+      # All commands go through docker exec so agent/session commands
+      # pass through the gateway's full tool filtering pipeline.
+      (writeShellScriptBin "openclaw" ''
         set -euo pipefail
         if [[ $# -eq 0 ]]; then
-          echo "Usage: oc <command> [args]"
-          echo "  oc wizard              Initial setup wizard"
-          echo "  oc gateway status      Check gateway status"
-          echo "  oc doctor --fix        Fix config issues"
-          echo "  oc channels add ...    Add a channel"
-          echo "  oc --version           Show version"
+          echo "Usage: openclaw <command> [args]"
+          echo "  openclaw agent --agent <id> --message '...'   Prompt a sub-agent"
+          echo "  openclaw agents list --bindings               Show agent routing"
+          echo "  openclaw gateway status                       Check gateway status"
+          echo "  openclaw doctor [--fix]                       Diagnose config issues"
+          echo "  openclaw sandbox explain [--agent <id>]       Show sandbox policy"
+          echo "  openclaw config get tools --json              Dump tool config"
+          echo "  openclaw plugins list                         List active plugins"
+          echo "  openclaw docs <topic>                         Query built-in docs"
+          echo "  openclaw --version                            Show version"
           exit 0
         fi
-        exec sudo docker run --rm -it \
-          --network=host \
-          --user=1000:1000 \
-          --group-add=${toString dockerGid} \
-          -e HOME=/home/node \
-          -e TERM=xterm-256color \
-          -e BROWSER=echo \
-          -e DOCKER_HOST=unix:///var/run/docker.sock \
-          --env-file /run/openclaw.env \
-          -v /var/lib/openclaw:/home/node/.openclaw:rw \
-          -v /var/run/docker.sock:/var/run/docker.sock \
-          openclaw-custom:latest \
-          "$@"
+
+        CONTAINER="openclaw-gateway"
+
+        if ! sudo docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q true; then
+          echo "Error: $CONTAINER is not running" >&2
+          exit 1
+        fi
+
+        # Allocate TTY only when stdin is a terminal
+        TTY_FLAG=""
+        if [ -t 0 ]; then
+          TTY_FLAG="-it"
+        else
+          TTY_FLAG="-i"
+        fi
+
+        exec sudo docker exec $TTY_FLAG "$CONTAINER" openclaw "$@"
       '')
 
       (writeShellScriptBin "help" ''
@@ -224,7 +234,7 @@ in
         echo "  system-info      Show system status and disk usage"
         echo ""
         echo "Services:"
-        echo "  oc <cmd> [args]  OpenClaw CLI (oc wizard, oc gateway status, ...)"
+        echo "  openclaw <cmd>   OpenClaw CLI (openclaw doctor, openclaw agent, ...)"
         echo ""
         echo "Troubleshooting:"
         echo "  docker-ps        List containers (docker ps)"
