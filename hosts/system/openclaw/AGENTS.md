@@ -110,15 +110,26 @@ docker exec openclaw-gateway openclaw docs tools.sandbox.tools
 docker exec openclaw-gateway openclaw docs tools.subagents
 ```
 
-### Tool Permission Layers (all must permit a tool)
+### Tool Permission Hierarchy
 
-1. `tools.profile` — base tool set
-2. `tools.allow/deny` — global filter
-3. `agents.list[].tools.allow/deny` — per-agent filter
-4. `tools.subagents.tools` — sub-agent filter (default: all except session tools)
-5. `tools.sandbox.tools` — sandbox filter (requires explicit group names, not `"*"`)
+OpenClaw filters the master tool list **top-to-bottom** before dispersing the final set to the agent/model. Each layer **only restricts further**; no layer can re-grant a tool denied earlier. `deny` **always wins** over `allow`/`profile` at every step.
 
-Each layer can only further restrict — never grant back tools denied by an earlier layer.
+Exact evaluation pipeline (verbatim from docs):
+
+1. **`tools.profile`** (or `agents.list[].tools.profile`) — base allowlist preset (`minimal` / `coding` / `messaging` / `full`).
+2. **`tools.byProvider[provider].profile`** (or per-agent) — provider/model-specific preset.
+3. **`tools.allow`** + **`tools.deny`** — global policy (deny wins).
+4. **`tools.byProvider[provider].allow/deny`** — provider/model override.
+5. **`agents.list[].tools.allow/deny`** — per-agent policy.
+6. **`agents.list[].tools.byProvider[provider].allow/deny`** — per-agent + provider.
+7. **Sandbox policy** (`tools.sandbox.tools` or `agents.list[].tools.sandbox.tools`) — only for sandboxed sessions.
+8. **Subagent policy** (`tools.subagents.tools.allow/deny`) — if spawning children.
+
+**Final remaining tools** are the ones the agent actually sees and can call. Anything dropped never reaches the model.
+
+Runtime execution guards (file path rules, exec approvals, elevated `allowFrom`, sandbox container) kick in **after** this filter — they do not change what the model is offered.
+
+**Note:** Layer 7 (`tools.sandbox.tools`) requires explicit group names — wildcard `"*"` does not work. Use `group:fs`, `group:runtime`, `group:sessions`, `group:web`, `group:memory`, `group:ui`, `group:openclaw`, etc.
 
 ## Upgrade & Container Refresh
 
