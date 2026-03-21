@@ -94,29 +94,33 @@ After deploying config changes, verify sub-agent tool availability:
 deploy remote-switch
 deploy ssh
 
-# Verify per-agent deny lists (authoritative — shows layer 5 tools.deny per agent)
+# ── Authoritative tool validation (routes through gateway, all 8 layers applied) ──
+# This is the ONLY reliable way to see the final filtered tool set a sub-agent receives.
+# `oc agent` runs a separate container that falls back to embedded mode, bypassing deny lists.
+docker exec openclaw-gateway openclaw agent --agent scout --message "return only the output of available_tools"
+docker exec openclaw-gateway openclaw agent --agent planner --message "return only the output of available_tools"
+docker exec openclaw-gateway openclaw agent --agent ideator --message "return only the output of available_tools"
+
+# General pattern: prompt any sub-agent programmatically
+docker exec openclaw-gateway openclaw agent --agent <id> --message "<instruction>"
+
+# ── Supporting checks (partial views, useful for quick sanity) ──
+# Per-agent deny lists in generated JSON (mirrors Nix, useful to spot typos)
 cat /var/lib/openclaw/openclaw.json | grep -oP '"id":"[^"]+"|"deny":\[[^\]]+\]'
 
-# Inspect sandbox tool policy for a specific agent (layer 7 only, not per-agent deny)
+# Sandbox tool policy (layer 7 only, not per-agent deny)
 oc sandbox explain --agent scout
 
-# Prompt a sub-agent interactively (runs embedded — shows full tool set, not deny-filtered)
-oc agent --agent scout --message "return only the output of available_tools"
-
-# General pattern: --agent <id> --message <instruction> for programmatic troubleshooting
-oc agent --agent coder --message "list your working directory contents"
-
 # Health and routing
-oc sandbox explain
 oc doctor
-
-# Verify agent routing
 oc agents list --bindings
 
 # Query docs inside the container
 docker exec openclaw-gateway openclaw docs tools.sandbox.tools
 docker exec openclaw-gateway openclaw docs tools.subagents
 ```
+
+**Caveat:** `oc agent --agent <id>` spawns a separate CLI container that often fails gateway connection and falls back to **embedded mode** — running the model with the full unfiltered tool set. Always use `docker exec openclaw-gateway openclaw agent` for accurate tool validation.
 
 ### Tool Permission Hierarchy
 
