@@ -110,9 +110,9 @@ openclaw docs tools.sandbox.tools
 cat /var/lib/openclaw/openclaw.json | grep -oP '"id":"[^"]+"|"deny":\[[^\]]+\]'
 ```
 
-**Agent command caveat:** `openclaw agent` spawns a fresh CLI process inside the gateway container via `docker exec`. Each invocation generates a new device identity that isn't paired with the gateway, causing the websocket handshake to time out and fall back to **embedded mode** (unfiltered tool set). This is a known limitation — the gateway requires device pairing for websocket auth, and there's no auto-approve for loopback.
+**Agent command caveat:** `openclaw agent` runs via `docker exec -u node` inside the gateway container, reusing the gateway's paired device identity. However, the CLI-to-gateway websocket handshake consistently times out (upstream issue — the CLI `agent` command doesn't complete the handshake within the gateway's timeout window), causing fallback to **embedded mode** (unfiltered tool set).
 
-**To validate tool filtering with all 8 layers applied**, prompt a sub-agent through an actual channel (Telegram) or the Control UI — these are already-paired devices that go through the full gateway pipeline.
+**To validate tool filtering with all 8 layers applied**, prompt a sub-agent through Telegram or the Control UI — these are already-connected channels that go through the full gateway pipeline.
 
 ### Tool Permission Hierarchy
 

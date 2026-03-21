@@ -217,7 +217,7 @@ in
           TTY_FLAG="-i"
         fi
 
-        exec sudo docker exec $TTY_FLAG "$CONTAINER" openclaw "$@"
+        exec sudo docker exec $TTY_FLAG -u node "$CONTAINER" openclaw "$@"
       '')
 
       (writeShellScriptBin "help" ''
