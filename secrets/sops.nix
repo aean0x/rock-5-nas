@@ -102,7 +102,7 @@ in
           path = "/run/openclaw.env";
           content = lib.concatStringsSep "\n" (
             lib.mapAttrsToList (
-              envVar: sopsKey: ''${envVar}="${config.sops.placeholder.${sopsKey}}"''
+              envVar: sopsKey: "${envVar}=${config.sops.placeholder.${sopsKey}}"
             ) openclawSecrets
           );
         };
@@ -113,9 +113,7 @@ in
           group = "root";
           mode = "0400";
           path = "/run/wifi.env";
-          content = ''
-            WIFI_PSK="${config.sops.placeholder."wifi_psk"}"
-          '';
+          content = "WIFI_PSK=${config.sops.placeholder."wifi_psk"}";
         };
       })
     ];
