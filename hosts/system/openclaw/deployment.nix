@@ -7,7 +7,6 @@
   ...
 }:
 let
-  cfg = config.services.openclaw;
   openclawConfig = import ./config.nix {
     inherit pkgs lib settings;
     openclaw-agents = inputs.openclaw-agents;
@@ -15,7 +14,6 @@ let
   agentDefs = openclawConfig.agentDefs;
   workspaceDefs = import ./workspace {
     inherit lib pkgs agentDefs;
-    secretNames = cfg.secretNames;
   };
 
   baseImage = "ghcr.io/phioranex/openclaw-docker:latest";

@@ -2,12 +2,10 @@
 # Server-specific rules, tooling discipline, and automation guidelines.
 {
   lib,
-  secretNames ? [ ],
+  ...
 }:
 
 let
-  secretList = lib.concatStringsSep "\n" (map (name: "- `${name}`") secretNames);
-
   # prettier-ignore
   apiGatewayServices = [
     "Gmail"
@@ -32,8 +30,7 @@ in
 
     ## Environment
      - You are running in a docker container declared on a NixOS host.
-     - The following environment variables are available in your shell and sandboxes:
-    ${secretList}
+     - Secrets are auto-loaded from `~/.openclaw/.env` (bind-mounted read-only from the host).
      - Openclaw.json is defined on NixOS build and will not persist past a restart.
 
     ## Safety

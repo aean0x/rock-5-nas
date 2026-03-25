@@ -35,11 +35,11 @@ let
     X_ACCESS_TOKEN = "x_access_token";
     X_ACCESS_SECRET = "x_access_secret";
     X_BEARER_TOKEN = "x_bearer_token";
+    GITHUB_PAT = "github_pat";
+    BTC_WALLET_KEY = "btc_wallet_key";
   };
 in
 {
-  services.openclaw.secretNames = lib.attrNames openclawSecrets;
-
   sops = {
     defaultSopsFile = ./secrets.yaml;
     age.keyFile = "/var/lib/sops-nix/key.txt";
@@ -78,6 +78,8 @@ in
         x_access_token = { };
         x_access_secret = { };
         x_bearer_token = { };
+        github_pat = { };
+        btc_wallet_key = { };
       }
       (lib.mkIf (settings.enableRouter or false) {
         wifi_ap_password = { };
@@ -96,7 +98,7 @@ in
     templates = lib.mkMerge [
       {
         openclawEnv = {
-          owner = "root";
+          owner = "user";
           group = "root";
           mode = "0640";
           path = "/run/openclaw.env";

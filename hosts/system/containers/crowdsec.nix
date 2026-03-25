@@ -127,11 +127,9 @@ in
     };
   };
 
-  # Caddy access logs to stderr so journald captures them for CrowdSec parsing
-  services.caddy.globalConfig = lib.mkAfter ''
-    log {
-      output stderr
-      format json
-    }
+  # Caddy access logs to stderr/journald for CrowdSec parsing
+  services.caddy.logFormat = ''
+    output stderr
+    format json
   '';
 }

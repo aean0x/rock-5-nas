@@ -27,9 +27,9 @@ let
   # ── Shared container config ──────────────────────────────────
   commonContainer = {
     image = customImage;
-    environmentFiles = [ "/run/openclaw.env" ];
     volumes = [
       "${configDir}:/home/node/.openclaw:rw"
+      "/run/openclaw.env:/home/node/.openclaw/.env:ro"
       "/var/run/docker.sock:/var/run/docker.sock"
     ];
     extraOptions = [
@@ -57,13 +57,7 @@ in
     ./deployment.nix
   ];
 
-  options.services.openclaw = {
-    secretNames = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = [ ];
-      description = "Environment variable names available to OpenClaw containers. Set by sops.nix.";
-    };
-  };
+  options.services.openclaw = { };
 
   config = {
 
