@@ -212,11 +212,14 @@ let
           ## Environment Context
           - You are a sub-agent running in a Docker sandbox.
           - For dangerous admin commands (`openclaw doctor`, gateway restart, sandbox config changes, secret rotation), reply exactly "Delegate to main" and stop. Safe read-only commands (status checks, log tailing, file reads) are fine to run locally.
-          - Skills are shared from main, mounted read-only from `/home/node/.openclaw/workspace/skills`.
-          - `dev/` is mounted rw for shared coding projects.
-          - `.tools` is ro mounted and in PATH for common utilities (uv, docker, goplaces, bird, etc).
-          - `/dropbox` is a shared rw mount for inter-agent file exchange.
           - Your tool set is defined in openclaw.json and summarized below.
+
+          ## Shared Mounts and Workspace Access (dynamic from Nix binds in agents.nix)
+          - `/dropbox`: shared rw for inter-agent file exchange
+          - skills: ro from main
+          - .tools: ro + in PATH
+          - dev: rw for shared projects
+          - (exact binds defined in mkAgent.docker.binds and slotted here at generation time — no ambiguity)
         '';
         initialPersistent = ''
           ### Notes to Future Me
