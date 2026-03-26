@@ -220,6 +220,9 @@ let
           - .tools: ro + in PATH
           - dev: rw for shared projects
           - (exact binds defined in mkAgent.docker.binds and slotted here at generation time — no ambiguity)
+
+          ## Debugging Policy
+          If you encounter a task that according to the available tools and documentation you should be able to complete without issue, but it fails, always include detailed debug information: tools/methods attempted, exact error messages or bad returns, sandbox/permission limitations observed, and any relevant output.
         '';
         initialPersistent = ''
           ### Notes to Future Me
